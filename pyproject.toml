@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roadcond"
+description = "Road Condition AI: road surface classification and cross-country damage detection study"
+readme = "README.md"
+# PRD targets Python 3.11; no upper bound so Colab/Kaggle (3.12+) still install.
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = [
+    "numpy",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+train = [
+    "torch",
+    "torchvision",
+    "timm",
+    "scikit-learn",
+    "scikit-image",
+    "albumentations",
+    "grad-cam",
+    "pandas",
+    "matplotlib",
+    "tqdm",
+    "tensorboard",
+]
+# Ultralytics is AGPL-3.0, kept separate on purpose.
+detect = ["ultralytics"]
+export = ["onnx", "onnxruntime"]
+serve = ["fastapi", "uvicorn[standard]", "python-multipart", "pillow", "onnxruntime"]
+dev = ["pytest", "ruff"]
+
+[tool.hatch.version]
+path = "src/roadcond/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/roadcond"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
