@@ -1,0 +1,42 @@
+project:
+  name: road-condition-ai
+  seeds: [0, 1, 2]              # PRD: >=3 seeds, report mean and spread
+
+paths:
+  raw: data/raw
+  processed: data/processed
+  splits: data/splits           # saved file lists (committed)
+  artifacts: artifacts          # checkpoints, onnx, results json (gitignored)
+
+rscd:
+  task: classification
+  label: friction               # material / unevenness are optional extensions
+  image_size: [240, 360]        # PRD "240 x 360 px"; verify H x W on real files
+  # Ordered dry -> ice (roughly ordinal); index order is the label id.
+  classes: [dry, wet, water, fresh_snow, melted_snow, ice]
+  subset:
+    train_size: 40000           # PRD range 30k-50k, balanced
+    balanced: true
+    split: official             # official val/test untouched; subsample train only
+
+rdd2022:
+  task: detection
+  # Names from the PRD; D-codes from the RDD2022 dataset convention (verify on annotations).
+  classes:
+    - {id: 0, code: D00, name: longitudinal_crack}
+    - {id: 1, code: D10, name: transverse_crack}
+    - {id: 2, code: D20, name: alligator_crack}
+    - {id: 3, code: D40, name: pothole}
+  source_country: Japan
+  target_countries: [Norway, Czech, United_States]   # verify folder names after download
+  label_budgets: [0, 10, 50, 200]
+  pseudo_label:
+    confidence_threshold: null  # not given in PRD; tune on validation
+
+metrics:
+  classification: [macro_f1, accuracy, per_class_precision, per_class_recall, ece]
+  detection: [map50, map50_95, f1_at_conf]
+  detection_f1_conf: null       # PRD: "fixed confidence threshold", value unspecified
+
+tracking:
+  backend: tensorboard          # or wandb (undecided in PRD)

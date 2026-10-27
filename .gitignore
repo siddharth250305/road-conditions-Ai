@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+.DS_Store
+
+# Datasets: ignore contents, keep layout and saved split file lists
+data/*
+!data/README.md
+!data/splits/
+!data/raw/
+!data/processed/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.zip
+*.tar
+*.tar.gz
+*.h5
+*.parquet
+
+# Model weights
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+
+# Run outputs
+artifacts/
+runs/
+wandb/
+mlruns/
+lightning_logs/
+outputs/
