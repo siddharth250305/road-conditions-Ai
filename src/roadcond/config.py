@@ -5,8 +5,15 @@ from typing import Any
 
 import yaml
 
-# Resolves to <repo>/configs/default.yaml; valid for a repo checkout or editable install.
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
+# Repo root; valid for a repo checkout or editable install.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "default.yaml"
+
+
+def resolve_path(path: str | Path, base: Path = PROJECT_ROOT) -> Path:
+    """Make a path absolute; relative paths are taken from base (the repo root by default)."""
+    path = Path(path).expanduser()
+    return path if path.is_absolute() else base / path
 
 
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
