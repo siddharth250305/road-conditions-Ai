@@ -4,20 +4,27 @@ project:
 
 paths:
   raw: data/raw
-  processed: data/processed
+  processed: data/processed     # feature caches (gitignored)
   splits: data/splits           # saved file lists (committed)
   artifacts: artifacts          # checkpoints, onnx, results json (gitignored)
 
 rscd:
   task: classification
   label: friction               # material / unevenness are optional extensions
+  root: data/raw/rscd           # override with --root on Colab/Kaggle
+  # Folder names under root. Assumed from the RSCD download; verify on the real data.
+  split_dirs: {train: train, val: vali_20k, test: test_50k}
+  label_source: auto            # auto | folder | filename, see roadcond.data.rscd.label_from_path
   image_size: [240, 360]        # PRD "240 x 360 px"; verify H x W on real files
   # Ordered dry -> ice (roughly ordinal); index order is the label id.
   classes: [dry, wet, water, fresh_snow, melted_snow, ice]
   subset:
-    train_size: 40000           # PRD range 30k-50k, balanced
-    balanced: true
-    split: official             # official val/test untouched; subsample train only
+    train_size: 40000           # balanced over the 6 classes; official val/test untouched
+    seed: 0                     # one fixed subset; model seeds (project.seeds) vary
+  dedup:
+    hash_size: 8                # dHash with 8 x 8 = 64 bits
+    max_hamming: 4              # train image dropped if within 4 bits of a val/test image
+    drive_id_regex: null        # e.g. '^(\d{8})' if file names carry a drive or date id
 
 rdd2022:
   task: detection
@@ -32,6 +39,21 @@ rdd2022:
   label_budgets: [0, 10, 50, 200]
   pseudo_label:
     confidence_threshold: null  # not given in PRD; tune on validation
+
+baseline:                       # PRD C2: colour histogram + HOG
+  image_size: [120, 180]        # H x W after downscaling, keeps HOG fast
+  color_bins: 16                # per channel, for RGB and HSV
+  hog:
+    orientations: 9
+    pixels_per_cell: [16, 16]
+    cells_per_block: [2, 2]
+  models:                       # grid values are chosen on validation macro-F1
+    logreg:
+      max_iter: 1000
+      grid: {C: [0.1, 1.0]}
+    random_forest:
+      n_estimators: 300
+      grid: {max_depth: [null, 30]}
 
 metrics:
   classification: [macro_f1, accuracy, per_class_precision, per_class_recall, ece]

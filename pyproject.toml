@@ -11,16 +11,17 @@ requires-python = ">=3.11"
 dynamic = ["version"]
 dependencies = [
     "numpy",
+    "pillow",
     "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
+classical = ["scikit-learn", "scikit-image", "joblib"]
 train = [
+    "roadcond[classical]",
     "torch",
     "torchvision",
     "timm",
-    "scikit-learn",
-    "scikit-image",
     "albumentations",
     "grad-cam",
     "pandas",
@@ -32,7 +33,8 @@ train = [
 detect = ["ultralytics"]
 export = ["onnx", "onnxruntime"]
 serve = ["fastapi", "uvicorn[standard]", "python-multipart", "pillow", "onnxruntime"]
-dev = ["pytest", "ruff"]
+notebook = ["jupyterlab", "matplotlib"]
+dev = ["pytest", "ruff", "nbstripout"]
 
 [tool.hatch.version]
 path = "src/roadcond/__init__.py"
