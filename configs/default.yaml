@@ -35,10 +35,51 @@ rdd2022:
     - {id: 2, code: D20, name: alligator_crack}
     - {id: 3, code: D40, name: pothole}
   source_country: Japan
-  target_countries: [Norway, Czech, United_States]   # verify folder names after download
+  target_countries: [Norway, Czech, United_States]   # keys of `countries` below
+  root: data/raw/rdd2022        # override with --root on Colab/Kaggle
+  # Country key -> folder under root, and where its labelled images live. Assumed from the
+  # RDD2022 release; verify on the real download (test labels are not public, so only the
+  # train folders are used and every split is our own held-out split).
+  countries: {Japan: Japan, Norway: Norway, Czech: Czech, United_States: United_States}
+  images_dir: train/images
+  annotations_dir: train/annotations/xmls
+  work_dir: data/processed/rdd_yolo   # symlinked images + YOLO labels + Ultralytics lists
+  split:                        # per country, seeded; val is capped, the excess goes to the pool
+    seed: 0
+    train_pool: 0.7             # few-shot samples and the unlabelled pool come from here
+    val: 0.1
+    test: 0.2                   # touched once per final model
+    max_val_images: 500
+  dedup: {hash_size: 8, max_hamming: 4}   # pool images near-duplicating val/test are dropped
   label_budgets: [0, 10, 50, 200]
-  pseudo_label:
-    confidence_threshold: null  # not given in PRD; tune on validation
+  yolo:                         # D1: source detector, trained on the source country only
+    model: yolov8n              # yolov8n or yolov8s
+    imgsz: 640
+    epochs: 30
+    batch: 16
+    workers: 2
+    max_train_images: 5000      # cap on the source pool so one run fits a free Colab session
+    seed: 0
+  augment:                      # D2: weather augmentation for the source detector
+    strength: 1.0
+  few_shot:                     # D3, D5: fine-tune the source detector on a few target labels
+    seeds: [0, 1, 2]
+    epochs: 30
+    min_iterations: 100         # tiny budgets get more epochs so every budget sees >= this many steps
+    batch: 8
+    lr0: 0.001
+    freeze: 10                  # freeze the backbone (first 10 layers of YOLOv8)
+    nested: true                # each seed's 10 images are inside its 50, inside its 200
+  pseudo_label:                 # D4
+    confidence_threshold: 0.5   # default; the sweep below picks the final one on target val
+    sweep: [0.3, 0.5, 0.7]
+    pool_size: 1000             # unlabelled target images to pseudo-label
+    source_replay: 2000         # source images mixed in so the detector does not forget
+    epochs: 20
+    batch: 16
+    lr0: 0.001
+    freeze: 10
+    seeds: [0, 1, 2]
 
 baseline:                       # PRD C2: colour histogram + HOG
   image_size: [120, 180]        # H x W after downscaling, keeps HOG fast
@@ -71,7 +112,7 @@ classifier:                     # PRD C3, C4: small CNN and fine-tuned pretraine
 metrics:
   classification: [macro_f1, accuracy, per_class_precision, per_class_recall, ece]
   detection: [map50, map50_95, f1_at_conf]
-  detection_f1_conf: null       # PRD: "fixed confidence threshold", value unspecified
+  detection_f1_conf: 0.25       # PRD: "fixed confidence threshold", value unspecified; our choice
 
 tracking:
   backend: tensorboard          # or wandb (undecided in PRD)

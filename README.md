@@ -97,3 +97,53 @@ Copy `artifacts/` to Drive before the session ends. To run one model, call
 dry run before the full job.
 
 Local check without any download: `pytest tests/test_dl.py` (needs `pip install -e ".[dev,train]"`).
+
+## Phase 3: cross-country damage detection (D1-D5)
+
+A YOLOv8 detector trained on one country (Japan) and scored on others (Norway, Czech Republic,
+USA), then three ways to recover the lost accuracy. Install with `pip install -e ".[dev,detect]"`.
+**Ultralytics is AGPL-3.0**: it stays in the optional `detect` extra; decide the repository
+licence before making it public.
+
+| Step | Command | PRD |
+|---|---|---|
+| Split countries, write lists and data configs | `prepare --root <RDD2022>` | data rules |
+| Train on Japan, score every country | `source` | D1 |
+| Same with weather augmentation, no target images | `source --augment` | D2 |
+| Fine-tune on 10 / 50 / 200 target labels, 3 seeds | `fewshot` | D3, D5 |
+| Pseudo-label unlabelled target images, retrain | `pseudo` | D4 |
+| Tables, learning curve, `detection_report.md` | `report` | D1-D5 |
+
+Run each as `python scripts/train_detection.py <step> [options]`, or all of them with
+`bash scripts/run_phase3.sh <RDD2022>`. Finished work is skipped, so after a Colab timeout rerun
+the same command (add `--resume` to continue a half-trained source detector).
+
+- **Splits.** RDD2022 test labels are not public, so each country gets its own seeded
+  70 / 10 / 20 % train-pool / val / test split from its labelled images; pool images that nearly
+  duplicate a val/test image are dropped. The exact lists are `data/splits/rdd_<country>_*.txt`
+  (commit them). The generated `data/splits/rdd_*.yaml` hold absolute paths and are git-ignored.
+- **Recipe.** Source: YOLOv8n, 640 px, 30 epochs, at most 5,000 Japanese images (a cap for free
+  Colab; `--max-train-images` changes it). Few-shot: fixed recipe, backbone frozen, final weights
+  scored, never tuned on target data; the 10 images are inside the 50, inside the 200, per seed.
+- **Metrics.** mAP@0.5 and mAP@0.5:0.95 from Ultralytics; F1 at a fixed confidence of 0.25 from
+  our own matcher. Relative gap = (source - target) / source; "gap recovered" is `n/a` when the
+  target is not worse than the source.
+- **Test split** of each country is scored once per final model. Pseudo-label thresholds
+  {0.3, 0.5, 0.7} are chosen on target *validation* images, which is the one place target labels
+  influence a label-free method; the results file says so.
+
+**Google Colab** (GPU runtime; torch is preinstalled):
+
+```python
+!git clone https://github.com/siddharth250305/road-conditions-Ai.git
+%cd road-conditions-Ai
+# Put the RDD2022 download on local disk first, e.g. unzip it to /content/rdd2022
+!bash scripts/run_phase3.sh /content/rdd2022
+!bash scripts/run_phase3.sh /content/rdd2022 --resume      # after a disconnect
+```
+
+Copy `artifacts/` and `data/splits/rdd_*.txt` to Drive before the session ends. Dry run first:
+`bash scripts/run_phase3.sh /content/rdd2022 --epochs 1 --imgsz 320`.
+
+Local check without any download: `pytest tests/test_detection.py` (39 tests, about 10 seconds,
+including a real Ultralytics run on a synthetic mock dataset).

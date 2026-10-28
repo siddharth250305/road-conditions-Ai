@@ -23,6 +23,8 @@ data/*
 !data/splits/
 !data/raw/
 !data/processed/
+# Generated YOLO data configs hold absolute paths; the committed lists are the .txt files
+data/splits/rdd_*.yaml
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*
