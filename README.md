@@ -147,3 +147,43 @@ Copy `artifacts/` and `data/splits/rdd_*.txt` to Drive before the session ends. 
 
 Local check without any download: `pytest tests/test_detection.py` (39 tests, about 10 seconds,
 including a real Ultralytics run on a synthetic mock dataset).
+
+## Phase 4: ONNX export and demo API (W1, W2, W3)
+
+A trained classifier becomes a small **bundle** (`model.onnx`, `meta.json`, optionally
+`study.json`), and a FastAPI service answers from that folder alone. Install with
+`pip install -e ".[dev,export,serve]"`; the server itself needs only `.[serve]` (no torch).
+
+```bash
+# 1. Export: PyTorch checkpoint -> one ONNX file, checked against PyTorch (tolerance 1e-4)
+python scripts/export_model.py bundle --checkpoint <best.pt> --results <results/model.json> --out serving
+# 2. The cross-country benchmark for the demo's study view (from the Phase 3 result files)
+python scripts/export_model.py study --results-dir artifacts/results --out serving/study.json
+# 3. Serve
+ROADCOND_BUNDLE_DIR=serving uvicorn api.main:app --port 8000      # docs at /docs
+curl -F file=@road.jpg localhost:8000/predict
+```
+
+| Endpoint | Returns |
+|---|---|
+| `POST /predict` (multipart `file`, optional `?heatmap=false`) | `prediction`, calibrated `confidence`, `is_uncertain` + `display_label` ("Not sure"), `top2`, all `probabilities`, `heatmap_base64` (PNG overlay), `limits_note` |
+| `GET /study` | slope-chart points (source vs target mAP) and the few-shot learning curve, from your measured results only; 404 if absent |
+| `GET /health` | status, model, classes; 503 if no model is loaded |
+
+- **The ONNX graph contains the normalisation**, so the server only resizes the picture (Pillow,
+  no torch). Its second output is a per-class activation map: for SmallCNN, ResNet-50 and
+  EfficientNet-B0 this equals Grad-CAM at the last feature map (a test checks it), so heatmaps
+  need no gradients at serving time.
+- **Confidence is calibrated:** softmax of logits divided by the temperature stored in `meta.json`
+  (fitted in Phase 2 on validation data). "Not sure" appears when it is below 0.5
+  (`ROADCOND_UNCERTAINTY_THRESHOLD`; the PRD gives no value).
+- **Errors:** 400 empty or corrupt files, 413 too many bytes (10 MB) or pixels (50 million),
+  422 missing `file`, 503 no model. Settings: `ROADCOND_BUNDLE_DIR`, `ROADCOND_MAX_UPLOAD_MB`,
+  `ROADCOND_MAX_PIXELS`, `ROADCOND_HEATMAP_ALPHA`, `ROADCOND_CORS_ORIGINS` (only for a separate
+  dev frontend).
+- **A bundle built from `--mock` data says so** in `/health` and in the limits note.
+- `.onnx` files are git-ignored. ResNet-50's is about 94 MB: ship it through Git LFS or the
+  Hugging Face Hub, not a plain commit.
+
+Local check without any download or training: `pytest tests/test_export.py tests/test_api.py`
+(48 tests, about 20 seconds).

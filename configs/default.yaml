@@ -109,6 +109,14 @@ classifier:                     # PRD C3, C4: small CNN and fine-tuned pretraine
     resnet50: {timm_name: resnet50, epochs: 12, patience: 4, lr: 0.001, backbone_lr: 0.0001}
     efficientnet: {timm_name: efficientnet_b0, epochs: 12, patience: 4, lr: 0.001, backbone_lr: 0.0001}
 
+serving:                        # PRD W1-W3: ONNX bundle and the demo API
+  bundle_dir: serving           # model.onnx + meta.json (+ study.json); env ROADCOND_BUNDLE_DIR overrides
+  uncertainty_threshold: 0.5    # "Not sure" below this calibrated top-1 probability (PRD gives no value)
+  onnx_tolerance: 1.0e-4        # ONNX Runtime must match PyTorch within this
+  # The server itself reads only env vars: ROADCOND_BUNDLE_DIR, ROADCOND_UNCERTAINTY_THRESHOLD,
+  # ROADCOND_MAX_UPLOAD_MB (10), ROADCOND_MAX_PIXELS (50000000), ROADCOND_HEATMAP_ALPHA (0.45),
+  # ROADCOND_CORS_ORIGINS (comma-separated, default none).
+
 metrics:
   classification: [macro_f1, accuracy, per_class_precision, per_class_recall, ece]
   detection: [map50, map50_95, f1_at_conf]
