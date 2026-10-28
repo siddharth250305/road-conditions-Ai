@@ -22,7 +22,6 @@ train = [
     "torch",
     "torchvision",
     "timm",
-    "albumentations",
     "grad-cam",
     "pandas",
     "matplotlib",
@@ -30,7 +29,7 @@ train = [
     "tensorboard",
 ]
 # Ultralytics is AGPL-3.0, kept separate on purpose.
-detect = ["ultralytics"]
+detect = ["ultralytics", "albumentations"]
 export = ["onnx", "onnxruntime"]
 serve = ["fastapi", "uvicorn[standard]", "python-multipart", "pillow", "onnxruntime"]
 notebook = ["jupyterlab", "matplotlib"]

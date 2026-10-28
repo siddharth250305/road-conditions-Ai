@@ -55,3 +55,45 @@ outputs land in the clone under `/kaggle/working`.
 
 Afterwards, commit `data/splits/` back to the repo so every later run uses the same files.
 Feature caches (`data/processed/`) and results (`artifacts/`) stay out of git.
+
+## Phase 2: deep classifiers (C3, C4, C8, C9)
+
+Small CNN (from scratch), fine-tuned ResNet-50 and EfficientNet-B0 (timm), trained on the saved
+split files from Phase 1. Settings live in the `classifier:` section of `configs/default.yaml`.
+
+| Model | Epochs / patience | Notes |
+|---|---|---|
+| `small_cnn` | 30 / 6 | 4 x (Conv, BatchNorm, ReLU, MaxPool, Dropout), global average pooling |
+| `resnet50`, `efficientnet` | 12 / 4 | head-only for 1 epoch, then the whole network at a 10x smaller backbone learning rate |
+
+AdamW, cosine annealing, early stopping on validation macro-F1, mixed precision on GPU. A checkpoint
+is written every epoch, so after a Colab timeout rerun the same command with `--resume`.
+After training, a temperature is fitted on **validation** logits; ECE before and after scaling is
+reported for validation and (with `--eval-test`) for test. Judge H4 on the test numbers.
+
+```bash
+python scripts/train_classifier.py --model resnet50 --root <RSCD>                     # tune on val
+python scripts/train_classifier.py --model resnet50 --root <RSCD> --eval-test --gradcam 4
+```
+
+Outputs in `artifacts/` (git-ignored): `checkpoints/<model>_seed<n>/{best,last}.pt`, `history.json`,
+`loss_curves.png`, `reliability_<split>.png`, `gradcam_<split>.png`, and `results/<model>.json`
+(same shape as `baseline.json`, so the H1 table can compare all models).
+
+**Google Colab** (use a GPU runtime; torch and torchvision are preinstalled):
+
+```python
+!git clone https://github.com/siddharth250305/road-conditions-Ai.git
+%cd road-conditions-Ai
+!unzip -q /content/drive/MyDrive/RSCD.zip -d /content/rscd   # local disk, not Drive
+# data/splits/ must exist: run scripts/run_phase1.sh once, or commit the split files.
+!bash scripts/run_phase2.sh /content/rscd                        # all three models, val only
+!bash scripts/run_phase2.sh /content/rscd --eval-test --gradcam 4   # final run, once
+!bash scripts/run_phase2.sh /content/rscd --resume               # continue after a timeout
+```
+
+Copy `artifacts/` to Drive before the session ends. To run one model, call
+`scripts/train_classifier.py --model <name>` directly. Use `--limit 500 --epochs 1` for a quick
+dry run before the full job.
+
+Local check without any download: `pytest tests/test_dl.py` (needs `pip install -e ".[dev,train]"`).

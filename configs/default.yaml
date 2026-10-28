@@ -55,6 +55,19 @@ baseline:                       # PRD C2: colour histogram + HOG
       n_estimators: 300
       grid: {max_depth: [null, 30]}
 
+classifier:                     # PRD C3, C4: small CNN and fine-tuned pretrained models
+  batch_size: 64
+  num_workers: 2                # Colab has 2 CPU cores
+  amp: true                     # mixed precision, only used on CUDA
+  weight_decay: 0.01
+  augment_strength: 1.0         # scales colour jitter (brightness 0.2, contrast 0.2, saturation 0.1)
+  freeze_epochs: 1              # pretrained models: epochs with only the new head training
+  ece_bins: 15
+  models:                       # lr: head / whole model, backbone_lr: backbone after unfreezing
+    small_cnn: {epochs: 30, patience: 6, lr: 0.001, dropout: 0.1}
+    resnet50: {timm_name: resnet50, epochs: 12, patience: 4, lr: 0.001, backbone_lr: 0.0001}
+    efficientnet: {timm_name: efficientnet_b0, epochs: 12, patience: 4, lr: 0.001, backbone_lr: 0.0001}
+
 metrics:
   classification: [macro_f1, accuracy, per_class_precision, per_class_recall, ece]
   detection: [map50, map50_95, f1_at_conf]
