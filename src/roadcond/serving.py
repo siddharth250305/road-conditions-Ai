@@ -249,6 +249,13 @@ class Predictor:
             "classes": self.classes,
             "mock": bool(self.meta.get("mock")),
             "input": {"height": self.height, "width": self.width},
+            "uncertainty_threshold": self.threshold,
+            "calibration": self.meta["calibration"],
+            "training": self.meta.get("training"),
+            "provenance": {
+                key: self.meta.get("provenance", {}).get(key)
+                for key in ("checkpoint_sha256", "onnx_sha256")
+            },
         }
 
 

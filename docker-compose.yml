@@ -1,0 +1,14 @@
+# One command: docker compose up --build   (then open http://localhost:7860)
+# The model bundle is read from ./serving, so a new model needs no rebuild.
+services:
+  demo:
+    build: .
+    image: roadcond:latest
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./serving:/app/serving:ro
+    environment:
+      ROADCOND_UNCERTAINTY_THRESHOLD: "${ROADCOND_UNCERTAINTY_THRESHOLD:-}"
+      ROADCOND_MAX_UPLOAD_MB: "${ROADCOND_MAX_UPLOAD_MB:-10}"
+    restart: unless-stopped

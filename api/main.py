@@ -5,6 +5,9 @@
 The model comes from a bundle folder written by `python -m roadcond.export`; research and
 serving meet only there. If the bundle is missing the app still starts, /health and /predict
 answer 503, and /study keeps working when a study.json is present.
+
+When a built frontend exists (frontend/dist, or $ROADCOND_FRONTEND_DIR) it is served at "/"
+after every API route, so the demo is one same-origin service.
 """
 
 import logging
@@ -15,6 +18,7 @@ from typing import Annotated, Any
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from roadcond import __version__
@@ -30,6 +34,7 @@ from roadcond.serving import (
 log = logging.getLogger("roadcond.api")
 
 MULTIPART_OVERHEAD = 64 * 1024  # form boundaries and headers around the file bytes
+DEFAULT_FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 
 class ModelInfo(BaseModel):
@@ -60,13 +65,24 @@ class HealthResponse(BaseModel):
     classes: list[str] | None = None
     mock: bool | None = None
     detail: str | None = None
+    uncertainty_threshold: float | None = None
+    calibration: dict[str, Any] | None = None
+    training: dict[str, Any] | None = None
+    provenance: dict[str, Any] | None = None
 
 
 def create_app(
-    bundle_dir: str | Path | None = None, settings: ServingSettings | None = None
+    bundle_dir: str | Path | None = None,
+    settings: ServingSettings | None = None,
+    frontend_dir: str | Path | None = None,
 ) -> FastAPI:
-    """Build the app around a bundle folder (default: $ROADCOND_BUNDLE_DIR or ./serving)."""
+    """Build the app around a bundle folder (default: $ROADCOND_BUNDLE_DIR or ./serving).
+
+    frontend_dir: a built frontend to serve at "/" (default: $ROADCOND_FRONTEND_DIR, else
+    frontend/dist when it has been built).
+    """
     bundle = Path(bundle_dir or os.environ.get("ROADCOND_BUNDLE_DIR", "serving"))
+    frontend = Path(frontend_dir or os.environ.get("ROADCOND_FRONTEND_DIR") or DEFAULT_FRONTEND_DIR)
     settings = settings or ServingSettings.from_env()
 
     predictor: Predictor | None = None
@@ -135,6 +151,11 @@ def create_app(
         if study is None:
             raise HTTPException(404, "No study results have been added to this deployment yet")
         return study
+
+    if (frontend / "index.html").is_file():  # last, so it can never shadow an API route
+        app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
+    else:
+        log.info("No built frontend at %s: serving the API only", frontend)
 
     return app
 

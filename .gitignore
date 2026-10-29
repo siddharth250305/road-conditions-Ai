@@ -50,3 +50,12 @@ wandb/
 mlruns/
 lightning_logs/
 outputs/
+
+# Frontend build and dependencies
+frontend/node_modules/
+frontend/dist/
+
+# Serving bundle: model.onnx, meta.json, study.json are produced by scripts/export_model.py
+serving/*
+!serving/.gitkeep
+frontend/.vitest/
