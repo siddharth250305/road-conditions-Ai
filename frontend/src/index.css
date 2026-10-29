@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+/* Road survey sheet tokens (PRD pages 10-11).
+   Paper and asphalt swap roles in the dark variant; yellow is only ever a fill with ink text
+   on it, or a focus ring against ink. src/test/contrast.test.ts checks every pair below. */
+
+:root {
+  --surface: #ede8dc; /* paper */
+  --text: #16181a; /* asphalt ink */
+  --muted: #4a4d50;
+  --rule: #16181a;
+  --ink: #16181a; /* always asphalt: text on yellow and on tinted fills */
+  --dur-marker: 300ms;
+  --dur-heatmap: 180ms;
+  --dur-stamp: 120ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #16181a;
+    --text: #ede8dc;
+    --muted: #b9b4a8;
+    --rule: #ede8dc;
+  }
+}
+
+:root[data-theme="dark"] {
+  --surface: #16181a;
+  --text: #ede8dc;
+  --muted: #b9b4a8;
+  --rule: #ede8dc;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-ink: var(--ink);
+}
+
+@theme {
+  --color-lane: #f2b705;
+  --color-tint-dry: #b8b0a2;
+  --color-tint-wet: #7c93a8;
+  --color-tint-water: #2e5a88;
+  --color-tint-fresh_snow: #ffffff;
+  --color-tint-melted_snow: #aeb8c2;
+  --color-tint-ice: #a8e6f0;
+  --font-display: "Big Shoulders Display", Impact, "Arial Narrow", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html {
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  min-width: 320px;
+}
+
+/* Display type: 56-96 px with a tight 0.9 line height. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 0.9;
+  letter-spacing: 0.005em;
+}
+
+/* Mono data: 13 px with 4% letter spacing; nothing on the page is smaller than 11 px. */
+.data {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.caption {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Focus: yellow ring with an ink inner ring, so it reads on paper and on asphalt. */
+:focus-visible {
+  outline: 2px solid transparent; /* kept for forced-colours mode */
+  box-shadow:
+    0 0 0 2px var(--ink),
+    0 0 0 5px var(--color-lane);
+}
+
+.btn-primary {
+  background: var(--color-lane);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 1.1rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--text);
+  border: 2px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+
+.btn-quiet[aria-pressed="true"] {
+  background: var(--color-lane);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* Class tints. Every class also has its own pattern, so colour is never the only signal. */
+.tint-dry {
+  background-color: var(--color-tint-dry);
+}
+.tint-wet {
+  background-color: var(--color-tint-wet);
+  background-image: repeating-linear-gradient(0deg, rgb(22 24 26 / 0.55) 0 1px, transparent 1px 6px);
+}
+.tint-water {
+  background-color: var(--color-tint-water);
+  background-image: repeating-linear-gradient(0deg, rgb(237 232 220 / 0.7) 0 2px, transparent 2px 5px);
+}
+.tint-fresh_snow {
+  background-color: var(--color-tint-fresh_snow);
+  background-image: radial-gradient(circle, rgb(22 24 26 / 0.8) 1.2px, transparent 1.6px);
+  background-size: 8px 8px;
+}
+.tint-melted_snow {
+  background-color: var(--color-tint-melted_snow);
+  background-image: repeating-linear-gradient(45deg, rgb(22 24 26 / 0.5) 0 1px, transparent 1px 6px);
+}
+.tint-ice {
+  background-color: var(--color-tint-ice);
+  background-image:
+    repeating-linear-gradient(45deg, rgb(22 24 26 / 0.45) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(-45deg, rgb(22 24 26 / 0.45) 0 1px, transparent 1px 7px);
+}
+
+/* Ruler marker: travels to the predicted class (300 ms, ease-out). */
+.ruler-marker {
+  transform: translateY(calc(var(--i) * var(--row)));
+  transition:
+    transform var(--dur-marker) cubic-bezier(0.2, 0.7, 0.3, 1),
+    opacity var(--dur-marker) ease-out;
+}
+
+/* Heatmap crossfade (180 ms). */
+.fade-layer {
+  transition: opacity var(--dur-heatmap) ease-in-out;
+}
+
+/* Verdict stamp lands with a short scale settle (120 ms). */
+@keyframes stamp-settle {
+  from {
+    transform: rotate(-3deg) scale(1.18);
+    opacity: 0.4;
+  }
+  to {
+    transform: rotate(-3deg) scale(1);
+    opacity: 1;
+  }
+}
+.stamp {
+  transform: rotate(-3deg);
+  animation: stamp-settle var(--dur-stamp) ease-out;
+}
+
+@keyframes scan {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+.scan-bar {
+  animation: scan 1.2s linear infinite;
+}
+
+/* All motion switches off under the reduced-motion setting. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
