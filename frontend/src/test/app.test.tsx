@@ -16,6 +16,66 @@ function healthy(extra: Record<string, () => Response | Promise<Response>> = {})
   return mockFetch({ "/health": () => json(HEALTH), "/study": () => json(STUDY), ...extra });
 }
 
+// Most tests work on the Report screen; the home screen has its own block below.
+beforeEach(() => {
+  window.location.hash = "#/report";
+});
+afterEach(() => {
+  window.location.hash = "";
+});
+
+describe("home screen", () => {
+  beforeEach(() => {
+    window.location.hash = "";
+  });
+
+  it("opens on the hero with the headline, the two calls to action and the site links", async () => {
+    healthy();
+    render(<App />);
+    expect(screen.getByRole("heading", { level: 1, name: "RoadCondition AI" })).toBeInTheDocument();
+    expect(screen.getByText(/Dry, Wet, Snowy or Icy/)).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /try the demo/i })[0]).toHaveAttribute("href", "#/report");
+    expect(screen.getAllByRole("link", { name: /view on github/i })[0]).toHaveAttribute("href", expect.stringContaining("github.com"));
+    const nav = screen.getByRole("navigation", { name: /sections/i });
+    expect(within(nav).getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Demo" })).toHaveAttribute("href", "#/report");
+    expect(within(nav).getByRole("link", { name: "Study" })).toHaveAttribute("href", "#/study");
+    expect(screen.getByRole("heading", { level: 2, name: /how it works/i })).toBeInTheDocument();
+    expect(screen.getByTestId("limits-line")).toHaveTextContent(/only on RSCD/i);
+    await screen.findByTestId("mock-banner");
+  });
+
+  it("the surface chips preview a class on the roads, and a second press releases it", async () => {
+    healthy();
+    render(<App />);
+    const chips = within(screen.getByRole("group", { name: /preview a surface/i })).getAllByRole("button");
+    expect(chips.map((c) => c.textContent)).toEqual(["DryRoad", "WetRoad", "SnowRoad", "IceRoad"]);
+    const ice = chips[3]!;
+    await userEvent.click(ice);
+    expect(ice).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/every road in the photo now shows ice/i)).toBeInTheDocument();
+    await userEvent.click(ice);
+    expect(ice).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("a photo dropped on the hero is read and opens the demo screen", async () => {
+    healthy({ "/predict": () => json(SURE) });
+    const { container } = render(<App />);
+    await upload(container);
+    expect(await screen.findByTestId("stamp")).toHaveTextContent(/wet/i);
+    await waitFor(() => expect(window.location.hash).toBe("#/report"));
+  });
+
+  it("Model in the site bar opens the limits and provenance panel", async () => {
+    healthy();
+    render(<App />);
+    const nav = screen.getByRole("navigation", { name: /sections/i });
+    await userEvent.click(within(nav).getByRole("button", { name: "Model" }));
+    expect(within(nav).getByRole("button", { name: "Model" })).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("limits")).toBeVisible();
+  });
+});
+
 describe("empty state", () => {
   it("shows the blank specimen frame, three samples and the limits line", async () => {
     healthy();
@@ -203,7 +263,7 @@ describe("study tab", () => {
   it("draws both charts and the numbers behind them", async () => {
     healthy();
     render(<App />);
-    await userEvent.click(screen.getByRole("button", { name: "Study" }));
+    await userEvent.click(screen.getByRole("link", { name: "Study" }));
     expect(await screen.findByRole("img", { name: /detection accuracy at home and abroad/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /accuracy as target labels are added/i })).toBeInTheDocument();
     const table = screen.getByRole("table");
@@ -217,7 +277,7 @@ describe("study tab", () => {
   it("says so, and draws nothing, when no study has been added", async () => {
     healthy({ "/study": () => json({ detail: "none" }, 404) });
     render(<App />);
-    await userEvent.click(screen.getByRole("button", { name: "Study" }));
+    await userEvent.click(screen.getByRole("link", { name: "Study" }));
     expect(await screen.findByTestId("study-absent")).toHaveTextContent(/nothing to draw/i);
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });

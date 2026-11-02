@@ -58,4 +58,13 @@ frontend/dist/
 # Serving bundle: model.onnx, meta.json, study.json are produced by scripts/export_model.py
 serving/*
 !serving/.gitkeep
+
+# Claude / Agent state & internal tools
+.claude/
+.impeccable/
+.github/agents/
+.github/hooks/
+.github/skills/
+IMG_7651.JPG
+RoadCondition AI Hero Landing Page.png
 frontend/.vitest/

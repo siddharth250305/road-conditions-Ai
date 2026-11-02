@@ -22,7 +22,7 @@ flowchart LR
   EXP --> BUNDLE[("serving/<br/>model.onnx, meta.json, study.json")]
   subgraph D["Demo: one Docker image, port 7860"]
     BUNDLE --> API["FastAPI + ONNX Runtime (CPU)<br/>/predict /study /health"]
-    API --> UI["React survey sheet<br/>photo, friction ruler, verdict, limits"]
+    API --> UI["React app<br/>3D crossroads home, report, study, limits"]
   end
 ```
 
@@ -283,16 +283,21 @@ Local check without any download or training: `pytest tests/test_export.py tests
 
 ## Phase 5: web app, Docker and CI (W1, W2, R1, R2)
 
-A React page in the "road survey sheet" style (PRD pages 9-11): the photo sits in a specimen frame
-with crop marks, a vertical friction ruler runs dry to ice with a marker at the answer, and a
-rubber-stamp verdict gives the class. Vite, React, TypeScript and Tailwind CSS; D3 does the chart
-maths and React draws the SVG. Fonts (Big Shoulders Display, IBM Plex Mono, Public Sans) are bundled
-with `@fontsource`, so the page makes no third-party requests.
+A React app built from a hero design over a dusk drone photo of a city crossroads. The home screen
+is that photo laid flat as the ground of a 3D scene (three.js through React Three Fiber, loaded
+lazily), with surface layers fitted over its roads: the Dry, Wet, Snow and Ice chips repaint the
+roads in place. A dark site bar links Home, Demo, How it works, Study and Model, with GitHub and
+Get started on the right. On Report the photo sits in
+a frame with give-way corner marks, a friction ruler runs dry to ice, and the verdict is painted on.
+Vite, React, TypeScript and Tailwind CSS; D3 does the chart maths and React draws the SVG. Fonts
+(Barlow and Barlow Condensed, drawn from California highway signs) are bundled with `@fontsource`, so the page makes no third-party requests.
+The visual system is in [`DESIGN.md`](DESIGN.md).
 
 | Screen / state | What it shows |
 |---|---|
-| Report, empty | a blank specimen frame as the drop area, three generated sample pictures |
-| Report, result | photo with a 180 ms heatmap crossfade toggle, ruler marker (300 ms ease-out), stamp (120 ms settle), calibrated confidence |
+| Home | hero over the drone photo with a 3D road-surface layer (Dry, Wet, Snow, Ice chips), Try the Demo and View on GitHub, a How it works section; the plain photo without WebGL |
+| Report, empty | a blank photo frame as the drop area, three generated sample pictures |
+| Report, result | photo with a 180 ms heatmap crossfade toggle, ruler marker (300 ms ease-out), painted-on verdict (160 ms), calibrated confidence |
 | Report, low confidence | "Not sure", the top two classes, never a forced label |
 | Report, error / offline / no model | fixed messages; retry only where retrying can help |
 | Study | slope chart (source mAP to target mAP per country) and learning curve over 0, 10, 50, 200 labels, with the numbers in a table |
@@ -301,7 +306,7 @@ with `@fontsource`, so the page makes no third-party requests.
 ```bash
 cd frontend && npm ci
 npm run dev            # http://localhost:5173, proxies the API on :8000 (run `make demo-mock` in another shell)
-npm test               # 75 tests: API client, state machine, ruler, charts, contrast, motion, flows
+npm test               # 87 tests: API client, state machine, ruler, charts, design rules, home screen, flows
 npm run build          # writes frontend/dist, which the API serves at /
 ```
 

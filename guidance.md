@@ -28,10 +28,18 @@ This document explains what has been built in the **Road Condition AI** reposito
    - [3.18 Few-Shot Fine-Tuning and the Learning Curve (Req D3, D5)](#318-few-shot-fine-tuning-and-the-learning-curve-req-d3-d5)
    - [3.19 Pseudo-Labelling (Req D4)](#319-pseudo-labelling-req-d4)
    - [3.20 Detection Command Line and Colab Scripts](#320-detection-command-line-and-colab-scripts)
+   - [3.21 ONNX Export and the Serving Bundle (Req W3)](#321-onnx-export-and-the-serving-bundle-req-w3)
+   - [3.22 Serving Logic (Req W1, W2)](#322-serving-logic-req-w1-w2)
+   - [3.23 The Demo API](#323-the-demo-api)
+   - [3.24 The Survey-Sheet Frontend (Req W1, W2)](#324-the-survey-sheet-frontend-req-w1-w2)
+   - [3.25 Docker Image and Continuous Integration](#325-docker-image-and-continuous-integration)
+   - [3.26 Results Tables and the Study Write-Up (Req R1, R2)](#326-results-tables-and-the-study-write-up-req-r1-r2)
 4. [Step-by-Step Manual Verification Playbook](#4-step-by-step-manual-verification-playbook)
    - Phase 1: [Tests 1-6](#phase-1-data-pipeline-metrics-and-classical-baseline)
    - Phase 2: [Tests 7-13](#phase-2-deep-learning-classifier)
    - Phase 3: [Tests 14-20](#phase-3-cross-country-damage-detection)
+   - Phase 4: [Tests 21-28](#phase-4-onnx-export-and-the-demo-api)
+   - Phase 5: [Tests 29-35](#phase-5-frontend-docker-ci-and-documentation)
 5. [Reading the Results Against the PRD Hypotheses](#5-reading-the-results-against-the-prd-hypotheses)
 6. [Running the Real Experiments on Google Colab](#6-running-the-real-experiments-on-google-colab)
 7. [Known Limitations & Assumptions](#7-known-limitations--assumptions)
@@ -41,11 +49,11 @@ This document explains what has been built in the **Road Condition AI** reposito
 
 ## 1. Executive Summary & Current Status
 
-The repository contains the completed code for **Phase 0 (scaffolding)**, **Phase 1 (RSCD data pipeline and classical baseline)**, **Phase 2 (deep-learning surface classifier)** and **Phase 3 (cross-country YOLO damage detection and domain shift)**.
+The repository contains the completed code for **Phase 0 (scaffolding)**, **Phase 1 (RSCD data pipeline and classical baseline)**, **Phase 2 (deep-learning surface classifier)**, **Phase 3 (cross-country YOLO damage detection and domain shift)** **Phase 4 (ONNX export and the demo API)** and **Phase 5 (survey-sheet web page, Docker image, CI workflow, README and write-up)**.
 
-**What is verified:** all 106 automated tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests` and `scripts`, and every command in section 4 runs. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
+**What is verified:** all 167 Python tests and all 75 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
 
-**What is not verified yet:** no model has been trained on the real RSCD or RDD2022 data, so there are **no real accuracy numbers**. The GPU and mixed-precision (AMP) code paths have not been run, because they need a CUDA machine. The assumed RSCD and RDD2022 folder layouts (section 7) still have to be checked on the real downloads. Mock scores mean nothing: the mock classes differ only by colour or by drawn shapes.
+**What is not verified yet:** the GitHub Actions workflow has been written and its Python job simulated locally, but it has **not run on GitHub**; the Hugging Face Space has not been created; no model has been trained on the real RSCD or RDD2022 data, so there are **no real accuracy numbers**. The GPU and mixed-precision (AMP) code paths have not been run, because they need a CUDA machine. The assumed RSCD and RDD2022 folder layouts (section 7) still have to be checked on the real downloads. Mock scores mean nothing: the mock classes differ only by colour or by drawn shapes.
 
 ### Why this foundation matters
 1. **A leakage-free, balanced data subsetter** stops near-identical consecutive frames from inflating scores.
@@ -77,7 +85,12 @@ The repository contains the completed code for **Phase 0 (scaffolding)**, **Phas
 | **D4** | Recovery experiment: pseudo-labelling with a confidence threshold | Code complete, mock-verified; real run pending | [`detection/pseudo_label.py`](src/roadcond/detection/pseudo_label.py) | Tests 14, 19, 20 |
 | **D5** | Learning curve: target mAP against number of labelled target images | Code complete, mock-verified; real run pending | [`detection/few_shot.py`](src/roadcond/detection/few_shot.py), [`detection/report.py`](src/roadcond/detection/report.py) | Tests 17, 20 |
 | **Data Rules (detection)** | Own held-out split per country (no public test labels), saved lists, near-duplicate guard | Complete | [`data/rdd.py`](src/roadcond/data/rdd.py) | Test 16 |
-| **W1-W3** | Demo (FastAPI + React/D3) | Later phase | | |
+| **W1** | Demo: upload an image or pick a sample, get condition, confidence and heatmap | Complete on a mock model; real model pending | [`api/main.py`](api/main.py), [`serving.py`](src/roadcond/serving.py), [`frontend/`](frontend/) | Tests 21, 24, 27, 29-31 |
+| **W2** | Demo shows its limits: a note on training data, country, unseen conditions; "Not sure" instead of a forced label | Complete: a limits strip on every screen, an expandable panel, and a "Not sure" state with the top two classes | [`serving.py`](src/roadcond/serving.py), [`LimitsFooter.tsx`](frontend/src/components/LimitsFooter.tsx), [`VerdictPanel.tsx`](frontend/src/components/VerdictPanel.tsx) | Tests 25, 29, 31 |
+| **W3** | Model exported to ONNX and served from a lightweight API | Complete on mock data; a real export needs your Colab checkpoint | [`export.py`](src/roadcond/export.py) | Tests 22, 23 |
+| **UI / hosting** | React frontend, Docker image for the Hugging Face Space, CI | Frontend, Docker image and CI workflow built; the Space itself is not created, and CI has not run on GitHub | [`frontend/`](frontend/), [`Dockerfile`](Dockerfile), [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Tests 29-34 |
+| **R1** | README with setup, results tables, plots, limitations and future work | Structure complete; the results tables read "pending" until real runs exist | [`README.md`](README.md), [`results_tables.py`](src/roadcond/results_tables.py) | Test 35 |
+| **R2** | 2 to 4 page write-up of the cross-country study | Draft: method and decision rules written, findings pending real runs | [`docs/study_writeup.md`](docs/study_writeup.md) | Test 35 |
 
 ---
 
@@ -102,6 +115,7 @@ The repository contains the completed code for **Phase 0 (scaffolding)**, **Phas
     | `resnet50` | 12 | 4 | 0.001 (head) | 0.0001 |
     | `efficientnet` (`efficientnet_b0`) | 12 | 4 | 0.001 (head) | 0.0001 |
   - `rdd2022:` (detection) the four damage classes (D00, D10, D20, D40 = ids 0-3), the source country (Japan) and targets (Norway, Czech, United_States), assumed folder names, the per-country split (70 / 10 / 20 %, seed 0, val capped at 500 images), the `yolo:` settings (YOLOv8n, 640 px, 30 epochs, source pool capped at 5,000 images), `augment:`, `few_shot:` (budgets 10 / 50 / 200, seeds 0 / 1 / 2) and `pseudo_label:` (threshold sweep 0.3 / 0.5 / 0.7). `metrics.detection_f1_conf` is 0.25.
+  - `serving:` (demo) the default bundle folder, the "Not sure" threshold (0.5) and the ONNX tolerance (1e-4). The server itself reads only environment variables (section 3.23).
 - **[`config.py`](src/roadcond/config.py)**: `load_config()` and `resolve_path()`, so relative paths work from the repo root or from inside scripts.
 
 ### 3.2 The Anti-Leak RSCD Data Pipeline
@@ -242,6 +256,56 @@ All scripts run from a repo clone without `pip install`.
 - [`src/roadcond/detection/report.py`](src/roadcond/detection/report.py) builds `artifacts/results/detection_report.md`: the domain-gap table (D1), augmentation vs baseline (D2), the learning curve (D3, D5), pseudo-labelling (D4) and a side-by-side table of all recovery methods. Sections for steps that have not run say so.
 - [`scripts/run_phase3.sh`](scripts/run_phase3.sh) installs `ultralytics` and `albumentations`, then runs `prepare`, `source`, `source --augment`, `fewshot`, `pseudo` and `report`. Finished work is skipped, so rerunning the same command continues after a disconnect.
 
+### 3.21 ONNX Export and the Serving Bundle (Req W3)
+- **File**: [`src/roadcond/export.py`](src/roadcond/export.py), run through [`scripts/export_model.py`](scripts/export_model.py).
+- **The bundle** is a folder, and it is the *only* thing the server reads (the PRD's architecture: research and serving meet at the exported files):
+  - `model.onnx`: one self-contained file. Input `image`: raw RGB floats in [0, 1], shape `(batch, 3, 240, 360)`, with a **dynamic batch size**. Outputs `logits` and `cam`.
+  - `meta.json`: classes, input size, the normalisation that is baked into the graph, the temperature and the ECE it achieved, training provenance (seed, validation macro-F1, test macro-F1 if scored), SHA-256 of the checkpoint and the ONNX file, the library versions used, and the ONNX-versus-PyTorch check result. `"mock": true` if you passed `--mock`.
+  - `study.json` (optional): the cross-country benchmark for the demo's study view (section 3.23).
+- **`ServingModel`** wraps a trained network so the graph takes raw pixels: the mean / std normalisation is inside it, so the server only resizes. It returns `logits` and `cam`, the per-class activation maps at the layer that feeds global pooling.
+- **Why the heatmap needs no gradients.** ONNX Runtime cannot run backpropagation, but for a network that ends in global average pooling plus one linear layer (SmallCNN, ResNet-50, EfficientNet-B0), Grad-CAM at the last feature map is mathematically the class activation map `sum over channels of weight[class, channel] x feature map`. The graph outputs that directly. A test compares it with the Phase 2 `pytorch-grad-cam` code at the same layer (`feature_layer`) and they agree to about 1e-6. The bias is left out on purpose, since Grad-CAM ignores it. One consequence: for SmallCNN the served map is coarser (15 x 22) than the Phase 2 gallery, which hooked an earlier layer (30 x 45); for ResNet-50 it is 8 x 12.
+- **`export_onnx`** writes a single file (the new PyTorch exporter would otherwise put the weights in a second file, and copying only `model.onnx` would give an empty model). **`validate_onnx`** runs random batches of different sizes through both PyTorch and ONNX Runtime and **raises if any output differs by more than the tolerance (1e-4)**; `build_bundle` runs it before writing `meta.json`, so a bad export cannot produce a bundle.
+- **`build_bundle`** reads a Phase 2 `best.pt` (it carries the model name and class list) and the matching results JSON. The right run is found by seed, or by matching the checkpoint's validation macro-F1. It **refuses to export without a temperature** (`--results` or `--temperature`), so an uncalibrated model cannot be served by accident.
+- **`build_study`** turns the saved Phase 3 result files into `study.json`: the slope-chart points (source mAP, target mAP and the relative gap per country), the learning curve (mean ± std per label budget, gap recovered) and the augmentation and pseudo-label results. It contains only what the result files contain; with `--mock` it carries `"mock": true`.
+- Supported models: SmallCNN, ResNet-50 and EfficientNet-B0.
+
+### 3.22 Serving Logic (Req W1, W2)
+- **File**: [`src/roadcond/serving.py`](src/roadcond/serving.py). It uses numpy, Pillow and ONNX Runtime only (no torch), so the server image stays small.
+- **Decoding uploads** (`decode_image`): the file type is decided by decoding, never by the client's name or content type. Empty, unreadable and truncated files raise `InvalidImageError`; images with more than 50 million pixels (checked from the header, before decoding) or too many bytes raise `ImageTooLargeError`. EXIF rotation is applied, because phone photos store their orientation there, and every mode (RGBA, grey, palette, CMYK) is converted to RGB. Nothing is written to disk.
+- **Preprocessing** (`preprocess`): plain Pillow bilinear resize to 360 x 240. It matches the training pipeline to about 1e-7 in the model's logits (a test measures this, and shows that a wrong resize would miss the bound by a wide margin).
+- **The answer** (`Predictor.predict`): probabilities are the softmax of `logits / T` with the stored temperature, so the confidence is the calibrated one from Phase 2. The top-1 class is always reported, together with the top two, but when the calibrated top-1 probability is below the threshold (0.5 by default) `is_uncertain` is true and `display_label` is **"Not sure"**: the demo never shows a forced label for a doubtful photo.
+- **The heatmap** (`cam_to_heatmap`, `render_overlay`): the activation map of the predicted class, ReLU, scaled to [0, 1], upsampled to the picture, scaled again (the same steps as `pytorch-grad-cam`), colour-mapped and blended over the resized photo, returned as a PNG.
+- **The limits note** (`limits_note`) is built from the bundle's metadata and says what the model was trained on (RSCD: road-surface patches from vehicle cameras in China, six friction levels), that its behaviour on other countries, at night, with rain on the lens or on other surfaces is unknown, that the confidence is calibrated only on held-out RSCD data (with the real temperature and ECE), that the heatmap is not proof, and that it is a student project, not a safety system. A mock bundle's note starts with "DEMO MODEL BUILT FROM MOCK DATA".
+
+### 3.23 The Demo API
+- **File**: [`api/main.py`](api/main.py). Start it with `ROADCOND_BUNDLE_DIR=<bundle> uvicorn api.main:app`; interactive docs are at `/docs`.
+- **`POST /predict`** (multipart field `file`, optional `?heatmap=false`) returns `prediction`, `confidence`, `is_uncertain`, `display_label`, `top2`, `probabilities`, `heatmap_base64` (PNG), `heatmap_media_type`, `heatmap_class`, `limits_note`, `temperature`, `uncertainty_threshold` and `model`.
+- **`GET /study`** returns the bundle's `study.json`. If there is none it answers **404** rather than inventing numbers: the study view must be built from your own measurements only.
+- **`GET /health`** returns the status, model name, classes and whether the model is a mock; **503** if no model is loaded. The app still starts without a bundle, so a missing model is visible instead of a crashed server.
+- **Errors**: 400 for empty or corrupt files (the message never contains paths, file names or a traceback), 413 for too many bytes (checked from the `Content-Length` header before the body is read, and again while reading) or too many pixels, 422 for a missing `file`, 503 for no model.
+- **Settings are environment variables**: `ROADCOND_BUNDLE_DIR` (default `serving`), `ROADCOND_UNCERTAINTY_THRESHOLD`, `ROADCOND_MAX_UPLOAD_MB` (10), `ROADCOND_MAX_PIXELS` (50,000,000), `ROADCOND_HEATMAP_ALPHA` (0.45) and `ROADCOND_CORS_ORIGINS` (comma-separated; off by default, only needed for a separate dev frontend, since the deployed demo is same-origin).
+
+### 3.24 The Frontend: 3D Crossroads and Glass Navigation (Req W1, W2)
+- **Folder**: [`frontend/`](frontend/). Vite + React + TypeScript + Tailwind CSS v4; D3 (`d3-scale`, `d3-shape`) does only the chart maths and React draws the SVG. The home screen's 3D scene uses three.js through React Three Fiber, loaded as a separate lazy chunk (about 250 KB gzipped) so the Report and Study screens never download it. Fonts (Barlow 400/600 for UI text, Barlow Condensed 600/700 for headings and the painted road lettering; drawn from California highway signs) are bundled through `@fontsource`, so the page makes no third-party requests. The visual system is recorded in [`DESIGN.md`](DESIGN.md); product facts in [`PRODUCT.md`](PRODUCT.md).
+- **Three screens by URL hash** ([`src/route.ts`](frontend/src/route.ts)): `#/` home, `#/report`, `#/study`, so the back button and shared links work. The site bar ([`GlassNav`](frontend/src/components/GlassNav.tsx)) is on every screen: *Home*, *Demo* and *Study* are routes over a lane marking that is solid under the current page and dashed on hover, *How it works* scrolls to that section on the home screen, *Model* opens the limits and provenance panel, and GitHub and *Get started* sit on the right. Route changes use the View Transitions API: the page slides the way you travel (home, report, study run left to right), the header holds still and the lane marking glides to the new link; with reduced motion it is a short crossfade, and browsers without the API switch instantly.
+- **Home** ([`HomeScreen`](frontend/src/components/HomeScreen.tsx), [`scene/AerialScene`](frontend/src/components/scene/AerialScene.tsx)): a hero built from the design in `RoadCondition AI Hero Landing Page.png`. The background is the drone photo `IMG_7651.JPG` (served as `public/home/aerial.jpg`) laid flat as the ground of a 3D scene and framed to cover the screen with the crossing right of centre; a single surface layer with a soft road-shaped mask sits over the photo's roads. The Dry, Wet, Snow and Ice chips repaint those roads (wet sheen with lamp pools at the photo's own streetlights, standing water, snow, ice); a second press releases the chip. A photo dragged onto the hero is read straight away on the demo screen. Below the hero, How it works explains the three steps. Without WebGL the plain photo stays; under `prefers-reduced-motion` the camera does not settle or lean. **Before publishing, confirm you may use the photo: it is signed by a photographer.**
+- **Design tokens live in one place**, [`src/index.css`](frontend/src/index.css): an eleven-step asphalt ramp `--a0` (`#0A0D0C`) to `--a10` (`#ECEEE9`, marking white), temporary-works yellow `#E8B23A` for the mock banner only (never text), frosted glass for controls, solid line = committed and dashed = candidate, six class tints each with its own pattern so colour is never the only signal, and the three motion times (300, 180 and 160 ms). One dark theme only. [`src/test/design.test.ts`](frontend/src/test/design.test.ts) reads this file and checks the ramp, the contrast of every text pair, the yellow rule, the class patterns and that all motion switches off under `prefers-reduced-motion`.
+- **State machine** ([`state.ts`](frontend/src/state.ts)): `idle`, `loading`, `result`, `unsure`, `error`, `offline`. A low-confidence answer is its own state, so no code path can show a forced label for it. Only the newest request may change the page.
+- **Components** ([`src/components/`](frontend/src/components/)): `SpecimenFrame` (photo framed by give-way L marks, with a heatmap crossfade layer), `FrictionRuler` (six lanes dry to ice, a solid marker moves with a 300 ms ease-out, dashed ghost markers for the top two when unsure), `VerdictPanel` (the class painted on with a 160 ms wipe, calibrated confidence, live-region text; "Not sure" in a dashed outline), `SampleStrip` (three generated placeholders), `StudyScreen` with `SlopeChart` and `LearningCurve` (plus a table of the numbers), `LimitsFooter`, and `ErrorBoundary` (a plain message instead of a blank page).
+- **API contract**: `src/types.ts` matches the real responses, and the tests use responses captured from the running API (`src/test/fixtures/`). This matters: a hand-written fixture hid a wrong key (`class`, not `label`, in `top2`) until the page was opened in a browser.
+- **Errors are fixed wording**: the server's text is never shown. 400/415/422 mean "not a picture", 413 "too large", 503 "no model loaded", a failed request "offline"; only the last three offer a retry that can help.
+- **Served by the API**: [`api/main.py`](api/main.py) mounts `frontend/dist` at `/` after every API route (`ROADCOND_FRONTEND_DIR` changes the folder), so the page and the API share one origin. `/health` now also returns the calibration numbers, training summary and checkpoint hashes that the limits panel shows.
+
+### 3.25 Docker Image and Continuous Integration
+- **[`Dockerfile`](Dockerfile)**: stage 1 builds the page with Node 22; stage 2 is `python:3.12-slim` with `pip install ".[serve]"` (FastAPI, ONNX Runtime, Pillow; **no torch**), runs as user id 1000 on port 7860 (Hugging Face Spaces rules), and has a liveness `HEALTHCHECK` on `/openapi.json` (not `/health`, which correctly answers 503 when no model is loaded). The model bundle is not baked in: mount `./serving`, or copy it into `serving/` before building.
+- **[`docker-compose.yml`](docker-compose.yml)** maps 7860 and mounts `./serving` read-only. **[`Makefile`](Makefile)** gives one command each: `make setup`, `make demo-mock`, `make demo`, `make test`, `make docker`.
+- **[`scripts/make_mock_bundle.py`](scripts/make_mock_bundle.py)** builds a random-weight bundle plus a synthetic study so the whole web app can be tried without training; it is marked as mock everywhere.
+- **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)** has four jobs: `python` (ruff and pytest on Python 3.11 and 3.12 with only the light dependencies; torch tests skip themselves), `python-ml` (CPU torch, runs the classifier, Grad-CAM, ONNX export and API tests), `frontend` (type check, 87 tests, build) and `docker` (build, start, check that `/` answers 200 and `/health` answers 503 without a model).
+
+### 3.26 Results Tables and the Study Write-Up (Req R1, R2)
+- **[`results_tables.py`](src/roadcond/results_tables.py)** and [`scripts/render_results.py`](scripts/render_results.py) turn the saved result files into markdown tables (classifier macro-F1, accuracy and ECE with mean ± std over seeds; per-country detection mAP for zero-shot, augmentation, 10/50/200 labels and pseudo-labels) and write them between `<!-- results:start -->` and `<!-- results:end -->` markers in the README and the write-up. A cell with no data says `pending`; nothing is typed in by hand.
+- **[`docs/study_writeup.md`](docs/study_writeup.md)** (about 1,100 words, 2 to 3 pages) states the question and hypotheses H6 to H8, data and split rules, method, metric definitions, threats to validity and how to reproduce. Section 5 (findings) is deliberately empty: it holds the decision rules and "pending" until real runs exist.
+
 ---
 
 ## 4. Step-by-Step Manual Verification Playbook
@@ -250,12 +314,12 @@ Run everything from the repository root. One-time setup:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,train,detect]"   # Phase 1 only needs ".[dev,classical]", Phase 2 ".[dev,train]"
+pip install -e ".[dev,train,detect,export,serve]"   # Phase 1 needs ".[dev,classical]", Phase 2 ".[dev,train]"
 ```
 
 ### Phase 1: Data Pipeline, Metrics and Classical Baseline
 
-#### Test 1: Run the Complete 106-Test Suite
+#### Test 1: Run the Complete 167-Test Suite
 ```bash
 pytest -v
 ```
@@ -269,8 +333,12 @@ pytest -v
 | `tests/test_baseline.py` | 2 | feature vector length and end-to-end training |
 | `tests/test_dl.py` | 28 | Phase 2 (see Tests 7-13) |
 | `tests/test_detection.py` | 39 | Phase 3 (see Tests 14-20) |
+| `tests/test_export.py` | 15 | Phase 4: ONNX export (see Tests 21-23, 27, 28) |
+| `tests/test_api.py` | 33 | Phase 4: the demo API (see Tests 21, 24-26, 28) |
+| `tests/test_frontend_mount.py` | 7 | Phase 5: the built page is served after, never instead of, the API routes; path traversal; `/health` details (see Test 29) |
+| `tests/test_results_tables.py` | 6 | Phase 5: results tables and the README markers (see Test 35) |
 
-**Success criteria:** `106 passed` in roughly 25 seconds on a laptop CPU. Tests that need scikit-learn or torch are skipped automatically if those are not installed.
+**Success criteria:** `167 passed` in roughly 40 seconds on a laptop CPU. Tests that need scikit-learn or torch are skipped automatically if those are not installed.
 
 #### Test 2: Verify the Configuration Single Source of Truth
 ```bash
@@ -655,6 +723,261 @@ How to read it, and what **not** to read into it:
 - Pseudo-label precision (`detection_pseudo.json`, `pseudo_label_precision`) was 0.84, 0.62 and 0.91 for Norway, Czech and the United States. Czech chose threshold 0.25 on validation, and its labels were the least precise.
 - **None of these numbers say anything about real roads.** They show that every step runs on a model that can learn something, and that the arithmetic and tables are right. For the real study, the 3-seed spreads cover only target sampling and fine-tuning; if the source detector's own variation matters, train it with more than one seed (3 times the most expensive step).
 
+### Phase 4: ONNX Export and the Demo API
+
+Phase 4 needs the `export` and `serve` extras. Tests 22-28 reuse files from earlier tests (the mock classifier from Test 9, the mock detection results from Test 20, and the mock RSCD images from Test 3); everything stays in git-ignored folders. **None of this is a real model**: a bundle built from mock data says so in `/health` and in the limits note.
+
+#### Test 21: Run the Phase 4 Test Files
+```bash
+pytest tests/test_export.py tests/test_api.py -v
+```
+Expected: `48 passed` in about 20 seconds, with no training and no download (the fixtures export randomly initialised networks). What they cover:
+- **Export** (`test_export.py`): ONNX Runtime equals PyTorch within 1e-4 for SmallCNN, ResNet-50 and EfficientNet-B0, at batch sizes 1, 3 and an unseen 5; the export is one file; normalisation is inside the graph; validation raises when the two disagree; the served heatmap equals Grad-CAM; server preprocessing equals training preprocessing; the bundle metadata; refusal of bad checkpoints and of uncalibrated export; the study builder.
+- **API** (`test_api.py`): the `/predict` answer and its calibration arithmetic, "Not sure", the heatmap PNG, every image format, corrupt and oversized uploads, `/study`, `/health`, 503 without a model, settings, CORS.
+
+#### Test 22: Export a Checkpoint to a Bundle (Req W3)
+```bash
+python3 scripts/export_model.py bundle \
+    --checkpoint artifacts/mock_dl/checkpoints/small_cnn_seed0/best.pt \
+    --results artifacts/mock_dl/results/small_cnn.json \
+    --out artifacts/mock_serving --mock
+```
+Expected (the numbers vary between mock trainings):
+```text
+Exported small_cnn to artifacts/mock_serving/model.onnx
+  ONNX Runtime vs PyTorch: max |diff| {'logits': 4.8e-07, 'cam': 1.3e-06}, tolerance 0.0001
+  temperature 0.034; ECE 0.70 -> 0.17 (test)
+```
+The folder `artifacts/mock_serving/` now holds `model.onnx` (1.6 MB, one file) and `meta.json`. The temperature is below 1 because the mock model is barely trained and under-confident (Test 11 explains how to read it). To export a real model from Colab, point `--checkpoint` at a real `best.pt` and `--results` at its `results/<model>.json`; without `--results` you must give `--temperature`, because the exporter refuses to produce an uncalibrated bundle.
+
+#### Test 23: Inspect the Bundle and Re-check ONNX Against PyTorch
+```bash
+python3 -c "
+import onnx
+model = onnx.load('artifacts/mock_serving/model.onnx'); onnx.checker.check_model(model)
+print('valid ONNX; inputs', [(i.name, [d.dim_param or d.dim_value for d in i.type.tensor_type.shape.dim]) for i in model.graph.input], 'outputs', [o.name for o in model.graph.output])"
+python3 -c "
+import numpy as np, onnxruntime as ort, torch
+from roadcond.config import load_config
+from roadcond.export import ServingModel, load_checkpoint
+model, state = load_checkpoint('artifacts/mock_dl/checkpoints/small_cnn_seed0/best.pt', load_config())
+wrapper = ServingModel(model, state['model_name']).eval()
+session = ort.InferenceSession('artifacts/mock_serving/model.onnx', providers=['CPUExecutionProvider'])
+for batch in (1, 4, 7):
+    x = torch.rand(batch, 3, 240, 360)
+    logits, cam = session.run(None, {'image': x.numpy()})
+    with torch.no_grad(): ref_logits, ref_cam = wrapper(x)
+    print(f'batch {batch}: logits diff {np.abs(logits - ref_logits.numpy()).max():.1e}, cam diff {np.abs(cam - ref_cam.numpy()).max():.1e}, cam shape {cam.shape[1:]}')"
+```
+Expected:
+```text
+valid ONNX; inputs [('image', ['batch', 3, 240, 360])] outputs ['logits', 'cam']
+batch 1: logits diff 3.6e-07, cam diff 8.3e-07, cam shape (6, 15, 22)
+batch 4: logits diff 2.4e-07, cam diff 1.1e-06, cam shape (6, 15, 22)
+batch 7: logits diff 4.8e-07, cam diff 1.2e-06, cam shape (6, 15, 22)
+```
+The first axis is named `batch`, so any batch size works (7 was never used during the export). The differences are about a thousand times below the 1e-4 requirement. Then read `artifacts/mock_serving/meta.json`: the class list, input size, `"embedded_in_graph": true` for the normalisation, the temperature and ECE, the SHA-256 of the checkpoint and the ONNX file, and the library versions. Automated: `pytest tests/test_export.py -v -k "matches_pytorch or normalisation or fails_loudly or metadata"`.
+
+#### Test 24: Run the Server and Ask for a Prediction (Req W1)
+Terminal 1 (leave it running; Ctrl+C stops it):
+```bash
+ROADCOND_BUNDLE_DIR=artifacts/mock_serving uvicorn api.main:app --port 8000
+```
+Terminal 2:
+```bash
+curl -s localhost:8000/health
+IMG=$(ls data/raw/rscd_mock/test_50k/*.jpg | head -1)
+curl -s -F "file=@$IMG" localhost:8000/predict > artifacts/mock_serving/predict.json
+python3 - <<'EOF'
+import base64, json
+d = json.load(open("artifacts/mock_serving/predict.json"))
+for key, value in d.items():
+    if key == "heatmap_base64": print(key, f"<{len(value)} base64 characters>")
+    elif key == "limits_note": print(key, value[:90] + "...")
+    elif key == "probabilities": print(key, {c: round(p, 3) for c, p in value.items()})
+    else: print(key, value)
+open("artifacts/mock_serving/heatmap.png", "wb").write(base64.b64decode(d["heatmap_base64"]))
+EOF
+```
+Expected (mock model, so the values are meaningless; the *shape* of the answer is what to check):
+```text
+{"status":"ok","version":"0.1.0","model":"small_cnn","classes":["dry","wet","water","fresh_snow","melted_snow","ice"],"mock":true,"detail":null}
+prediction dry
+confidence 0.5738888738219775
+is_uncertain False
+display_label dry
+top2 [{'class': 'dry', 'probability': 0.5738888738219775}, {'class': 'wet', 'probability': 0.3572024451766384}]
+probabilities {'dry': 0.574, 'wet': 0.357, 'water': 0.0, 'fresh_snow': 0.002, 'melted_snow': 0.014, 'ice': 0.053}
+heatmap_base64 <98436 base64 characters>
+heatmap_media_type image/png
+heatmap_class dry
+limits_note DEMO MODEL BUILT FROM MOCK DATA: its answers mean nothing. This model was trained and eval...
+temperature 0.034152109175920486
+uncertainty_threshold 0.5
+model {'name': 'small_cnn', 'mock': True}
+```
+Open `artifacts/mock_serving/heatmap.png`: a 360 x 240 picture of the (resized) road photo with a blue-to-red heat colour map on top; red marks the regions that pushed the model toward its answer. Also open `http://localhost:8000/docs` for the interactive API page. The automated version of this test is `test_predict_returns_the_documented_answer`; `test_confidence_is_the_temperature_scaled_probability` recomputes the confidence independently from the ONNX logits and checks it equals softmax(logits / T).
+
+#### Test 25: "Not Sure" Instead of a Forced Label (Req W2)
+Stop the server (Ctrl+C) and restart it with a strict threshold:
+```bash
+ROADCOND_BUNDLE_DIR=artifacts/mock_serving ROADCOND_UNCERTAINTY_THRESHOLD=0.99 uvicorn api.main:app --port 8000
+```
+Ask again with the same photo:
+```bash
+curl -s -F "file=@$IMG" localhost:8000/predict | python3 -c "
+import json, sys; d = json.load(sys.stdin)
+print({k: d[k] for k in ('prediction', 'is_uncertain', 'display_label', 'uncertainty_threshold')}, '| confidence', round(d['confidence'], 3))
+print('top2', [(t['class'], round(t['probability'], 3)) for t in d['top2']], '| heatmap present:', bool(d['heatmap_base64']))"
+```
+Expected:
+```text
+{'prediction': 'dry', 'is_uncertain': True, 'display_label': 'Not sure', 'uncertainty_threshold': 0.99} | confidence 0.574
+top2 [('dry', 0.574), ('wet', 0.357)] | heatmap present: True
+```
+The confidence (0.574) is below the 0.99 threshold, so the answer is marked uncertain and the label to display is "Not sure", with the top two candidates beside it. The best guess is still in `prediction`, so a frontend can show "Not sure: dry or wet". The default threshold is 0.5 because the PRD gives no value; pick it from validation data once you have a real model. The limits note (`limits_note`) is in every response, and says what the model was trained on, that other countries and unseen conditions are unknown, and that the confidence is calibrated only on held-out RSCD data. Automated: `pytest tests/test_api.py -v -k "not_sure or threshold or limits_note"`.
+
+#### Test 26: Errors and Limits
+With a normal server running (Test 24):
+```bash
+curl -s -w " [HTTP %{http_code}]\n" -F "file=@README.md" localhost:8000/predict     # a text file
+curl -s -w " [HTTP %{http_code}]\n" -X POST localhost:8000/predict                  # no file at all
+```
+```text
+{"detail":"The file is not a readable image"} [HTTP 400]
+{"detail":[{"type":"missing","loc":["body","file"],"msg":"Field required","input":null}]} [HTTP 422]
+```
+Then restart the server with a small limit and upload the photo:
+```bash
+ROADCOND_BUNDLE_DIR=artifacts/mock_serving ROADCOND_MAX_PIXELS=1000 uvicorn api.main:app --port 8000
+curl -s -w " [HTTP %{http_code}]\n" -F "file=@$IMG" localhost:8000/predict
+```
+```text
+{"detail":"The image has 3,456 pixels; the limit is 1,000"} [HTTP 413]
+```
+The same with `ROADCOND_MAX_UPLOAD_MB=0.001` gives `{"detail":"The upload is larger than 1 KB"} [HTTP 413]`, and an upload far over the limit is refused from its `Content-Length` header before the body is even read (`{"detail":"The upload is too large"}`). Finally start the server with no model at all:
+```bash
+ROADCOND_BUNDLE_DIR=/nonexistent uvicorn api.main:app --port 8000
+curl -s -w " [HTTP %{http_code}]\n" localhost:8000/health
+curl -s -w " [HTTP %{http_code}]\n" -F "file=@$IMG" localhost:8000/predict
+```
+```text
+{"status":"unavailable","version":"0.1.0","model":null,"classes":null,"mock":null,"detail":"/nonexistent/meta.json not found: export a model first"} [HTTP 503]
+{"detail":"No model is loaded"} [HTTP 503]
+```
+The server starts anyway, so a missing model is a visible 503 rather than a crash. Error messages never contain file names, paths or tracebacks. Automated: `pytest tests/test_api.py -v -k "corrupt or too_many or missing or no_model or broken_bundle"`.
+
+#### Test 27: The Served Heatmap and Preprocessing Match the Research Code
+```bash
+pytest tests/test_export.py -v -k "heatmap_equals_gradcam or preprocessing_matches"
+```
+Expected: `3 passed` (the heatmap check for SmallCNN and ResNet-50, and one preprocessing check). Two claims are being tested here, because the server differs from the research code in two ways:
+- **No gradients at serving time.** The heatmap from the ONNX graph is compared with the Phase 2 `pytorch-grad-cam` result at the same layer, for the predicted class, on random input; they agree to 1e-4 (measured: about 1e-6). That is what makes it legitimate to call it a Grad-CAM heatmap although ONNX Runtime has no backpropagation.
+- **No torch in the server.** Plain Pillow resizing is compared with the torchvision pipeline used in training. Measured logits differ by about 1e-7, even for a 5x downscale of random noise. The test also feeds a deliberately wrong resize (nearest neighbour) and requires it to miss the bound by more than 1e-3, so the test would notice a real preprocessing mistake.
+
+#### Test 28: The Study Endpoint (the Cross-Country Benchmark)
+Needs the mock detection results from Test 20. Build the study file into the bundle, then serve and read it:
+```bash
+python3 scripts/export_model.py study --results-dir artifacts/mock_det150/results \
+    --out artifacts/mock_serving/study.json --mock
+ROADCOND_BUNDLE_DIR=artifacts/mock_serving uvicorn api.main:app --port 8000    # terminal 1
+curl -s localhost:8000/study | python3 -c "
+import json, sys; d = json.load(sys.stdin)
+print('mock', d['mock'], '| source', d['source_country'], round(d['source']['map50'], 3))
+for r in d['slope']: print(' ', r['country'], 'target', round(r['target_map50'], 3), 'gap', None if r['relative_gap_map50'] is None else round(r['relative_gap_map50'], 3))
+print('curve Norway:', [(p['labels'], round(p['map50']['mean'], 3)) for p in d['learning_curve']['Norway']])"
+```
+Expected (your numbers differ: Test 20 explains why mock results vary between runs):
+```text
+Wrote artifacts/mock_serving/study.json: 3 target countries, mock=True
+mock True | source Japan 0.834
+  Norway target 0.697 gap 0.164
+  Czech target 0.788 gap 0.055
+  United_States target 0.876 gap -0.05
+curve Norway: [(0, 0.697), (10, 0.695), (30, 0.76)]
+```
+`slope` holds one entry per target country (source mAP, target mAP, relative gap): the points of the slope chart. `learning_curve` holds mean ± std of mAP per label budget, with `0` as the source detector, which has no spread. A negative gap (the United States above) means the target scored higher than the source, and the study then reports no "recovery" for it rather than a misleading number. The endpoint serves only what the Phase 3 result files contain; with no `study.json` it answers 404. Automated: `pytest tests/test_api.py tests/test_export.py -v -k study`.
+
+### Phase 5: Frontend, Docker, CI and Documentation
+
+#### Test 29: Run the Python and Frontend Test Files
+```bash
+pytest tests/test_frontend_mount.py tests/test_results_tables.py -v     # 13 passed
+cd frontend && npm ci && npm test && cd ..                                # 75 passed
+```
+Expected (frontend): `Test Files  6 passed (6)`, `Tests  75 passed (75)`.
+
+| Frontend file | Tests | Covers |
+| :--- | :--- | :--- |
+| `api.test.ts` | 19 | HTTP code to error kind, fixed wording, offline, health 503, study 404 as "absent" |
+| `state.test.ts` | 6 | idle, loading, result vs unsure, failure kinds, stale answers ignored, reset |
+| `geometry.test.ts` | 7 | ruler position, label spreading, axis maximum |
+| `ruler.test.tsx` | 6 | six ticks dry to ice, marker on the predicted class, hollow ghosts and no marker when unsure, marker keeps its last place |
+| `design.test.ts` | 19 | palette, contrast of every text pair (light and dark), yellow never used as text, a pattern per class, 300/180/120 ms, reduced motion, 13 px mono, nothing below 11 px |
+| `app.test.tsx` | 18 | empty state with three samples, result, heatmap toggle, "Not sure", 400 / 503 / network errors with retry, offline banner, race between two uploads, limits panel, study tab, error boundary |
+
+Python: `test_frontend_mount.py` serves a throw-away build folder and checks that `/health`, `/docs`, `/study` and `POST /predict` still answer as the API, that `../secret.txt` style paths do not leak files, and that the API still runs with no build.
+
+#### Test 30: Build the Page and Run the Demo on a Mock Model
+```bash
+make demo-mock          # builds frontend/dist, writes serving/ (random weights, marked mock), serves :8000
+# or, step by step:
+cd frontend && npm ci && npm run build && cd ..
+python3 scripts/make_mock_bundle.py --out serving
+ROADCOND_BUNDLE_DIR=serving uvicorn api.main:app --port 8000
+curl -s -o /dev/null -w "%{http_code} %{content_type}\n" localhost:8000/        # 200 text/html
+curl -s localhost:8000/health                                                    # status ok, mock true, calibration, training, provenance
+```
+Expected: the build finishes in about a second and `frontend/dist` is about 1.6 MB: the main page script (about 93 KB gzipped), the lazy 3D scene chunk (about 250 KB gzipped, loaded only on the home screen), the Overpass font files and the 72 KB still image. If port 8000 is in use (another local service answered here once), use `PORT=9000 make demo-mock`, and check the page with `127.0.0.1` if `localhost` reaches something else. Delete `serving/model.onnx`, `meta.json` and `study.json` afterwards if you do not want a mock model in the Docker build.
+
+#### Test 31: Walk Through Every Screen and State
+Open the page and check, in order:
+
+1. **Home.** A yellow banner says the model is built from mock data. The hero shows the drone photo with RoadCondition AI, "Detects whether a road is Dry, Wet, Snowy or Icy", Try the Demo and View on GitHub. Point at the *Wet* chip: the photo's roads darken and pick up lamp pools; press *Snow*: the roads are covered; press it again to release. The chevron scrolls to How it works; *Model* in the site bar opens the limits panel.
+2. **Empty Report.** Click *Demo*: a blank "Drop a road photo" frame with L corner marks, three sample pictures, an empty ruler (`-` for each class), "Awaiting photo", and the limits line under the ruler.
+3. **Result.** Click *Sample 1*. The ruler marker slides to **Wet** (the mock model always says wet), the verdict paints on, the readout says `87%` and "calibrated on held-out data (RSCD)". The photo shows a heatmap overlay; *Heatmap on* fades it out and in. Every row of the ruler shows its probability.
+4. **Not sure.** `python3 scripts/make_mock_bundle.py --out serving --unsure`, restart the server, click a sample: the verdict reads **Not sure** in a dashed outline, two dashed markers sit on the top two classes, the two classes are listed with their percentages, and the text says no label is picked and that a non-road photo cannot be detected. No solid marker and no class name in the verdict.
+5. **Study.** Click *Study*: a slope chart (Japan source mAP to each target) with country labels, a learning curve over 0, 10, 50 and 200 labels with error bars, and a table of the numbers. A banner says the numbers are synthetic. With the server stopped, Study says the results could not be loaded and shows two dashed "Pending" frames.
+6. **Limits.** Click *Full limits*: training data, country, what the model has not seen, calibration (T and the ECE before and after) and provenance (model, seed, best epoch, macro-F1, checkpoint hash prefix).
+7. **Error.** Upload a text file renamed to `.jpg`: "That file could not be read as a picture..." with no retry button.
+8. **Offline.** Stop the server and click a sample: "Cannot reach the service...", with *Try again*. Restart the server and retry.
+9. **No model.** Start the server with an empty bundle folder: a notice says the service has no model loaded.
+10. **Reduced motion and phone width.** In the browser's rendering tools, emulate "prefers-reduced-motion: reduce": the scene appears at rest with no camera move or rider, and the surface panel still repaints the roads. At 390 px width the page has no horizontal scroll, and the surface chips become a swipeable rail under the scene.
+
+**Verified for this guide:** steps 1 to 5 and the phone width were checked in a real browser (steps 2 and 3 with both servers), and the dark and light variants were both seen. Steps 6 to 8 were verified by the automated tests (`app.test.tsx`), not by hand. Keyboard use (tab order, visible focus ring) is covered only by the stylesheet tests, so try it yourself with the `Tab` key.
+
+#### Test 32: Contrast, Type and Motion Rules
+```bash
+cd frontend && npx vitest run src/test/design.test.ts
+```
+Expected: 19 passed. The test reads `index.css` and fails if asphalt ink on paper drops below 14:1 (it is about 14.5:1), if any text pair falls under 4.5:1 (7:1 for body text), if yellow is used as a text colour anywhere in `src/`, if a class loses its own pattern, if the motion times change, or if the reduced-motion block disappears. Contrast of the six class tints is not checked as text, because tints are never used behind text.
+
+#### Test 33: Build and Run the Docker Image
+```bash
+docker build -t roadcond:test .
+docker run -d --name rc -p 7860:7860 -v "$PWD/serving:/app/serving:ro" roadcond:test
+curl -s localhost:7860/health | head -c 120; echo
+curl -s -o /dev/null -w "page %{http_code}\n" localhost:7860/
+curl -s -F file=@frontend/public/samples/sample-1.jpg "localhost:7860/predict?heatmap=false" | head -c 100; echo
+docker exec rc id -u ; docker inspect --format '{{.State.Health.Status}}' rc ; docker rm -f rc
+```
+Verified with a mock bundle mounted: `/health` ok (`"mock":true`), page `200`, `/predict` returns a prediction, the user id is `1000`, the container becomes `healthy`, and the image is about 340 MB. **Without a bundle** (omit `-v`): `/health` answers `503` with `"detail":"/app/serving/meta.json not found: export a model first"`, the page still answers `200`, and `/predict` answers `503`. Docker Desktop must be running (`open -a Docker`).
+
+#### Test 34: The CI Workflow
+```bash
+python3 -c "import yaml; print(list(yaml.safe_load(open('.github/workflows/ci.yml'))['jobs']))"    # python, python-ml, frontend, docker
+python3 -m venv /tmp/lean && /tmp/lean/bin/pip install -e ".[dev,classical,serve]" && /tmp/lean/bin/pytest -q
+```
+Expected: the four job names, and `83 passed, 43 skipped` for the light install (every torch test skips itself). **This was simulated locally; the workflow has not run on GitHub yet.** After the first push, open the Actions tab and fix whatever differs (the `python-ml` job installs CPU torch from the PyTorch index; the `docker` job needs the frontend job to pass first).
+
+#### Test 35: Results Tables and the Write-Up
+```bash
+python3 scripts/render_results.py --results-dir artifacts/mock_dl/results          # classifier rows from mock files, detection "pending"
+python3 scripts/render_results.py --results-dir artifacts/results --readme README.md   # fills the README block (all "pending" until real runs)
+pytest tests/test_results_tables.py -v
+```
+Expected on the mock files: a table with `small_cnn`, `resnet50`, `efficientnet` rows filled, `logreg` / `random_forest` as `pending`, and "Mean ± sample std over 1 seed(s)". With no result files every cell is `pending`. The write-up is [`docs/study_writeup.md`](docs/study_writeup.md): read it against sections 5 and 7 of this guide, and fill its findings after the real runs.
+
 ---
 
 ## 5. Reading the Results Against the PRD Hypotheses
@@ -686,6 +1009,8 @@ Full instructions and cells are in the [README](README.md). In short:
 4. After a timeout, rerun with `--resume`. Copy `artifacts/` to Drive before the session ends.
 5. Do a short dry run first: `python scripts/train_classifier.py --model resnet50 --root /content/rscd --limit 500 --epochs 1`.
 6. Phase 3 (needs the RDD2022 download on local disk, e.g. `/content/rdd2022`): `bash scripts/run_phase3.sh /content/rdd2022`. Rerun the same command after a disconnect (add `--resume` to continue a half-trained source detector), and copy `artifacts/` and `data/splits/rdd_*.txt` to Drive. A dry run first: `bash scripts/run_phase3.sh /content/rdd2022 --epochs 1 --imgsz 320`.
+7. Phase 4 (after the real Phase 2 and Phase 3 runs): export the model you want to demo, and the study file, then download the `serving/` folder: `pip install onnx onnxruntime onnxscript`, then `python scripts/export_model.py bundle --checkpoint artifacts/checkpoints/<model>_seed0/best.pt --results artifacts/results/<model>.json --out serving` and `python scripts/export_model.py study --results-dir artifacts/results --out serving/study.json`. Choose the model from the real H1 table, not in advance. Run the server locally with `ROADCOND_BUNDLE_DIR=serving uvicorn api.main:app` to check it before any deployment.
+8. Phase 5 (after the export): copy `serving/` into a Hugging Face Space repository (Git LFS for `model.onnx`) together with this repo's `Dockerfile`, `api/`, `src/`, `frontend/` and `pyproject.toml`, add the `sdk: docker`, `app_port: 7860` front matter to the Space's `README.md`, then run `python scripts/render_results.py --results-dir artifacts/results --readme README.md` and fill section 5 of `docs/study_writeup.md`. The Space has not been created yet.
 
 ---
 
@@ -696,7 +1021,7 @@ Full instructions and cells are in the [README](README.md). In short:
 - **`240 x 360` orientation**: the PRD does not say whether this is height x width. The config assumes height x width; the EDA notebook prints the real sizes.
 - **Near-duplicate threshold** (4 bits) is a starting value. Plain snow or ice images may be flagged even when they are different scenes: inspect the flagged pairs in the notebook. If file names carry a drive or date id, set `rscd.dedup.drive_id_regex` to also catch frames from the same drive.
 - **Mock classes differ only by colour**, so mock scores are near-perfect (or erratic on tiny runs) and say nothing about real performance.
-- **Not built yet:** imbalance handling (C6), hyperparameter sweep and tracker (C7), ViT/DINOv2 (C10), the ONNX export, the API and the demo.
+- **Not built yet:** imbalance handling (C6), hyperparameter sweep and tracker (C7), ViT/DINOv2 (C10). The web page, Docker image and CI workflow exist (Phase 5).
 - The EDA notebook has 6 `ruff` style warnings; `src`, `tests` and `scripts` are clean.
 
 **Phase 3 (detection) specifics**
@@ -711,24 +1036,43 @@ Full instructions and cells are in the [README](README.md). In short:
 - **Training time is unmeasured.** A rough, unmeasured guess is 5-9 GPU hours for the whole chain on a free T4, spread over several sessions; the per-run result files and `--resume` exist for that reason.
 - **Ultralytics is AGPL-3.0.** It is isolated in the optional `detect` extra. Decide the repository licence deliberately before publishing code, weights or a demo that include it.
 
+**Phase 4 (export and API) specifics**
+- **No real model is served yet.** Every bundle in this guide comes from a mock-trained classifier. A real one needs your Colab checkpoint, and its temperature, "Not sure" threshold and limits note then come from real results. The 0.5 threshold is our default (the PRD gives none); tune it on validation data.
+- **The heatmap is a class activation map**, identical to Grad-CAM at the last feature map but coarse (8 x 12 for ResNet-50, 15 x 22 for SmallCNN). It is also not the same layer as the Phase 2 SmallCNN gallery. It explains where the model looked, not whether it is right.
+- **"Not a road photo" is not detected.** The PRD lists it as a UI state, but the model only knows six road classes and will name one for any picture. The only guard is the low-confidence "Not sure" state, and a confidently wrong answer on a non-road photo is possible. A separate road / not-road check would be new work.
+- **Calibration covers RSCD only.** The temperature was fitted on held-out RSCD data from China; the confidence can be over-confident on other roads, which is exactly what the limits note says. The PRD's Nordic-photo check (testing on a few photos you may use) is yours to do and report.
+- **Server preprocessing uses Pillow, not torchvision.** They agree to about 1e-7 in the logits (measured and tested), but the agreement is only tested on synthetic images.
+- **One process, CPU only.** ONNX Runtime runs the model per request in a worker thread; a ResNet-50 request takes a fraction of a second on a laptop. Real latency on the Hugging Face free tier is unmeasured.
+- **Uploads:** limited to 10 MB and 50 million pixels by default; a request that declares a larger size is refused before it is read, but a body sent without a declared length is read up to the limit. There is no rate limiting or authentication.
+- **ResNet-50's ONNX file is about 94 MB**, close to GitHub's 100 MB file limit. `.onnx` files are git-ignored; use Git LFS or the Hugging Face Hub.
+- **The PyTorch exporter changes between versions.** This was tested with torch 2.14, onnx 1.23, onnxruntime 1.31 and onnxscript 0.7 on Python 3.14; the export validates itself against PyTorch every time, so a version that breaks it fails loudly at export time.
+
+**Phase 5 (frontend, Docker, CI, documentation) specifics**
+- **The page has only been run against mock models.** Its answers mean nothing and say so on every screen. How it looks with a real model, real photos and real study numbers (longer country names, curves that cross) is unchecked.
+- **The sample pictures are drawn, not photographed**, and carry no class label. Replace `frontend/public/samples/sample-N.jpg` with photos you may use, and test a few Nordic road photos as the PRD asks.
+- **No "not a road photo" state from the model.** The page shows "Not sure" at low confidence and says a non-road photo cannot be detected; a confident wrong answer on a non-road photo is possible.
+- **The heatmap and photo are stretched to 3:2**, the shape the model sees, so the overlay lines up; a very wide or tall photo looks squashed.
+- **Accessibility is partly tested.** Contrast, motion, alt text and the live region are checked by tests; keyboard-only use and screen-reader wording have not been tried by a person. Verify with the contrast checker the PRD asks for before release.
+- **CI has not run on GitHub.** Versions in the workflow (`actions/checkout@v4`, `setup-python@v5`, `setup-node@v4`, Node 22, Python 3.11/3.12) are my choices. The detection tests (Ultralytics) are not in CI: they are heavy and may download weights.
+- **The Docker image bakes in whatever is in `serving/`** at build time. The Space is not created; the `.onnx` file must go in with Git LFS or the Hub (ResNet-50's is about 94 MB). Image size is about 340 MB; real start-up time and latency on the free Space tier are unmeasured.
+- **Results tables and the write-up show "pending"** until real runs exist. The write-up is a draft of method and decision rules, not findings.
+- **The repository has no licence file yet**, and Ultralytics is AGPL-3.0: decide before making the repository public.
+
 ---
 
 ## 8. What Remains to Be Built (Next Phases)
 
 ```mermaid
 flowchart TD
-    Done["Done: Phases 0-3<br/>(scaffolding, RSCD pipeline, baseline C1-C2-C5, SmallCNN C3, pretrained C4,<br/>Grad-CAM C8, calibration C9, cross-country detection D1-D5)"]
-    Real["Next: real runs on Colab GPU<br/>(check both data layouts, classifiers x 3 seeds, detection chain,<br/>fill H1-H8)"]
-    Extra["Remaining classifier items<br/>(imbalance C6, sweep C7, optional C10)"]
-    Phase4["Phase 4: ONNX export & serving<br/>(FastAPI endpoint with limits note, W3)"]
-    Phase5["Phase 5: Survey-sheet frontend<br/>(Vite + React + Tailwind + D3, W1-W2)"]
+    Done["Done: Phases 0-5<br/>(scaffolding, RSCD pipeline, baseline C1-C2-C5, SmallCNN C3, pretrained C4,<br/>Grad-CAM C8, calibration C9, cross-country detection D1-D5,<br/>ONNX export and API W1-W3, survey-sheet frontend, Docker, CI, README and write-up draft)"]
+    Real["Next: real runs on Colab GPU<br/>(check both data layouts, classifiers x 3 seeds, detection chain,<br/>fill H1-H8, export the chosen model)"]
+    Publish["Then: publish<br/>(render results into README and write-up, create the Hugging Face Space,<br/>test Nordic photos, choose a licence, record the 60-second capture)"]
+    Extra["Optional: imbalance C6, sweep C7, ViT / DINOv2 C10"]
 
     Done --> Real
+    Real --> Publish
     Real --> Extra
-    Real --> Phase4
-    Extra --> Phase4
-    Phase4 --> Phase5
 ```
 
 ### Immediate next step
-Run the real experiments (section 6): confirm the RSCD layout with the EDA notebook and the RDD2022 layout with `rdd_report.json`, build the real split files, train the three classifiers, run the detection chain, and read the results against H1-H8.
+Run the real experiments (section 6): confirm the RSCD layout with the EDA notebook and the RDD2022 layout with `rdd_report.json`, build the real split files, train the three classifiers, run the detection chain, read the results against H1-H8, and export the model you choose together with the study file. Then publish: render the results into the README and the write-up, create the Hugging Face Space, and test a few Nordic road photos (Test 31, step 2, and section 7).

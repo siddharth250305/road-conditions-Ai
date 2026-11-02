@@ -3,11 +3,11 @@ import { CLASS_ORDER, classIndex, prettyClass, tintClass } from "../classes";
 import { percent } from "../format";
 import type { ViewState } from "../state";
 
-const ROW = 56; // px per class row
+const ROW = 48; // px per class row
 
 export interface RulerReading {
   marker: number | null; // the one predicted class, only when the model is sure
-  ghosts: number[]; // the top two, drawn hollow when it is not sure
+  ghosts: number[]; // the top two, drawn dashed when it is not sure
   probabilities: Record<string, number> | null;
 }
 
@@ -29,6 +29,8 @@ export function readingOf(state: ViewState): RulerReading {
   return { marker: null, ghosts: [], probabilities: null };
 }
 
+// Six lanes, dry to ice. The committed class carries a solid marking; candidates are dashed;
+// every class is always drawn, so an empty lane is visible as empty rather than missing.
 export function FrictionRuler({ state }: { state: ViewState }) {
   const { marker, ghosts, probabilities } = readingOf(state);
   // Remember where the marker last stood, so a new result travels from there.
@@ -46,18 +48,22 @@ export function FrictionRuler({ state }: { state: ViewState }) {
             <li
               key={name}
               data-class={name}
-              className="flex h-[var(--row)] items-center border-t border-rule last:border-b"
+              className="flex h-[var(--row)] items-center border-t border-a10/10 last:border-b"
             >
-              <span className="w-3 shrink-0" aria-hidden="true" />
-              <span
-                className={`h-full w-9 shrink-0 border-x border-rule ${tintClass(name)}`}
-                aria-hidden="true"
-              />
-              <span className="mx-3 h-px w-5 bg-rule" aria-hidden="true" />
-              <span className={`data flex-1 uppercase ${active ? "font-medium" : ""}`}>
+              <span className="w-4 shrink-0" aria-hidden="true" />
+              <span className={`h-7 w-7 shrink-0 rounded-md border border-a0/40 ${tintClass(name)}`} aria-hidden="true" />
+              <span className={`ml-3 w-28 shrink-0 text-[15px] first-letter:uppercase ${active ? "font-semibold text-a10" : "text-muted"}`}>
                 {prettyClass(name)}
               </span>
-              <span className="data tabular-nums">{p === undefined ? "–" : percent(p)}</span>
+              <span className="relative mr-4 h-1.5 flex-1 overflow-hidden rounded-full bg-a10/8" aria-hidden="true">
+                <span
+                  className="absolute inset-y-0 left-0 rounded-full bg-a10"
+                  style={{ width: `${Math.round((p ?? 0) * 100)}%`, opacity: active ? 1 : 0.4 }}
+                />
+              </span>
+              <span className={`data w-12 text-right ${active ? "font-semibold text-a10" : "text-muted"}`}>
+                {p === undefined ? "–" : percent(p)}
+              </span>
             </li>
           );
         })}
@@ -67,7 +73,7 @@ export function FrictionRuler({ state }: { state: ViewState }) {
         data-testid="ruler-marker"
         data-index={marker ?? ""}
         aria-hidden="true"
-        className="ruler-marker pointer-events-none absolute top-0 left-0 h-[var(--row)] w-3 border-2 border-ink bg-lane"
+        className="ruler-marker pointer-events-none absolute top-1.5 left-0 h-[calc(var(--row)-12px)] w-[5px] rounded-full bg-a10"
         style={{ opacity: marker === null ? 0 : 1 }}
       />
       {ghosts.map((index) => (
@@ -75,8 +81,8 @@ export function FrictionRuler({ state }: { state: ViewState }) {
           key={index}
           data-testid="ruler-ghost"
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 h-[var(--row)] w-3 border-2 border-dashed border-text"
-          style={{ top: index * ROW }}
+          className="pointer-events-none absolute left-0 w-[5px] border-l-[3px] border-dashed border-a9"
+          style={{ top: index * ROW + 6, height: ROW - 12 }}
         />
       ))}
     </div>

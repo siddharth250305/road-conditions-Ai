@@ -88,7 +88,7 @@ export function SlopeChart({ study }: { study: Study }) {
           {map(study.source.map50)}
         </text>
       </svg>
-      <figcaption className="data mt-2 max-w-prose text-muted">
+      <figcaption className="mt-2 max-w-prose text-sm text-muted">
         Each line is one target country: the same detector, scored at home and on that country's
         own held-out images. A steeper fall is a bigger domain shift.
       </figcaption>

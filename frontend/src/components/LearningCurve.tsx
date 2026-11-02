@@ -130,7 +130,7 @@ export function LearningCurve({ study }: { study: Study }) {
           </g>
         ))}
       </svg>
-      <figcaption className="data mt-2 max-w-prose text-muted">
+      <figcaption className="mt-2 max-w-prose text-sm text-muted">
         Mean over seeds with ± one standard deviation for 10, 50 and 200 labels. The 0-label point is
         the source detector with no target images, and is a single run.
       </figcaption>

@@ -7,7 +7,7 @@ export interface Sample {
 }
 
 export const SAMPLES: Sample[] = [
-  { id: "sample-1", url: "/samples/sample-1.jpg", caption: "Sample 1 · generated placeholder" },
-  { id: "sample-2", url: "/samples/sample-2.jpg", caption: "Sample 2 · generated placeholder" },
-  { id: "sample-3", url: "/samples/sample-3.jpg", caption: "Sample 3 · generated placeholder" },
+  { id: "sample-1", url: "/samples/sample-1.jpg", caption: "Sample 1 (generated placeholder)" },
+  { id: "sample-2", url: "/samples/sample-2.jpg", caption: "Sample 2 (generated placeholder)" },
+  { id: "sample-3", url: "/samples/sample-3.jpg", caption: "Sample 3 (generated placeholder)" },
 ];

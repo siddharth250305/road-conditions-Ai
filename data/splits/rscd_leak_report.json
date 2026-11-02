@@ -1,0 +1,477 @@
+{
+  "seed": 0,
+  "train_size_requested": 40000,
+  "train_size": 40000,
+  "split_sizes": {
+    "train": 958941,
+    "val": 19860,
+    "test": 49500
+  },
+  "subset_per_class": {
+    "dry": 6667,
+    "wet": 6667,
+    "water": 6667,
+    "fresh_snow": 6667,
+    "melted_snow": 6666,
+    "ice": 6666
+  },
+  "shortfall": {},
+  "dedup": {
+    "hash": "dhash",
+    "hash_size": 8,
+    "max_hamming": 4,
+    "drive_id_regex": null
+  },
+  "train_candidates_checked": 40775,
+  "train_rejected_near_duplicate": 775,
+  "train_rejected_shared_drive": 0,
+  "test_images_near_duplicate_of_val": 1190,
+  "shared_file_names": {
+    "train/val": 0,
+    "train/test": 0,
+    "val/test": 0
+  },
+  "examples": [
+    {
+      "train": "train/dry_asphalt_smooth/20220621220148111-dry-asphalt-smooth.jpg",
+      "match": "vali_20k/20220622155740661-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 3
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220728211618779-dry-concrete-smooth.jpg",
+      "match": "test_50k/202206212201341133-dry-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 3,
+      "n_matches": 37
+    },
+    {
+      "train": "train/dry_mud/20220311142259624-dry-mud.jpg",
+      "match": "test_50k/20220630235358466-water-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 1
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201855748-dry-concrete-smooth.jpg",
+      "match": "test_50k/20220727001635262-water-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 2,
+      "n_matches": 27
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201901784-dry-concrete-smooth.jpg",
+      "match": "vali_20k/202202101632215-dry-asphalt-severe.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 1
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220728211621487-dry-concrete-smooth.jpg",
+      "match": "test_50k/202204162218298-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 0,
+      "n_matches": 774
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201852126-dry-concrete-smooth.jpg",
+      "match": "test_50k/202207021447541726-dry-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 3,
+      "n_matches": 15
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201855630-dry-concrete-smooth.jpg",
+      "match": "test_50k/2022072223153147-water-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 2,
+      "n_matches": 174
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220719222719342-dry-concrete-smooth.jpg",
+      "match": "test_50k/202206221605161713-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 2,
+      "n_matches": 202
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202206212201331031-dry-asphalt-smooth.jpg",
+      "match": "test_50k/202201282105033-wet-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 1,
+      "n_matches": 8
+    },
+    {
+      "train": "train/dry_asphalt_smooth/20220719222645499-dry-asphalt-smooth.jpg",
+      "match": "test_50k/202204162225109-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 3
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202206302049101971-dry-asphalt-smooth.jpg",
+      "match": "test_50k/202205021440594-water-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 1
+    },
+    {
+      "train": "train/dry_asphalt_smooth/2022021019210014-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220707194427326-wet-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 2
+    },
+    {
+      "train": "train/dry_concrete_smooth/2022071120171312-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220711201653126-dry-concrete-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 11
+    },
+    {
+      "train": "train/dry_concrete_smooth/2022021022080716-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220714234326426-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 2,
+      "n_matches": 357
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201752708-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220722233143299-water-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 35
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220719222731643-dry-concrete-smooth.jpg",
+      "match": "test_50k/20220722233819252-water-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 2,
+      "n_matches": 180
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202202101637064-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220630204748541-dry-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 3,
+      "n_matches": 18
+    },
+    {
+      "train": "train/dry_asphalt_smooth/20220604230336592-dry-asphalt-smooth.jpg",
+      "match": "vali_20k/202206221553091750-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 2,
+      "n_matches": 180
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201856806-dry-concrete-smooth.jpg",
+      "match": "vali_20k/202206221556431061-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 1,
+      "n_matches": 546
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220719222724259-dry-concrete-smooth.jpg",
+      "match": "test_50k/20220707191958962-water-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 0,
+      "n_matches": 594
+    },
+    {
+      "train": "train/dry_concrete_smooth/2022021022180413-dry-concrete-smooth.jpg",
+      "match": "test_50k/20220530215640658-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 2,
+      "n_matches": 188
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202206302049071414-dry-asphalt-smooth.jpg",
+      "match": "test_50k/202206221545001617-wet-asphalt-slight.jpg",
+      "match_split": "test",
+      "distance": 3,
+      "n_matches": 16
+    },
+    {
+      "train": "train/dry_concrete_smooth/202207042136081638-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220722231500670-water-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 1,
+      "n_matches": 546
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220719222731666-dry-concrete-smooth.jpg",
+      "match": "vali_20k/202202102102136-dry-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 0,
+      "n_matches": 953
+    },
+    {
+      "train": "train/dry_asphalt_smooth/20220630204936934-dry-asphalt-smooth.jpg",
+      "match": "vali_20k/20220622160326883-wet-concrete-smooth.jpg",
+      "match_split": "val",
+      "distance": 2,
+      "n_matches": 370
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201750330-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220722231546586-water-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 19
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202202101418053-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220330143934272-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 2
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202202101604293-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220722233826485-water-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 1,
+      "n_matches": 200
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201636846-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220722233841359-water-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 16
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220719222727839-dry-concrete-smooth.jpg",
+      "match": "vali_20k/20220722233816616-water-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 4
+    },
+    {
+      "train": "train/dry_mud/202207022133421826-dry-mud.jpg",
+      "match": "vali_20k/2022021315482310-fresh_snow.jpg",
+      "match_split": "val",
+      "distance": 0,
+      "n_matches": 780
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202201261446284-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220723000035417-water-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 0,
+      "n_matches": 366
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220728211609797-dry-concrete-smooth.jpg",
+      "match": "test_50k/2022063023563293-wet-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 0,
+      "n_matches": 759
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202206302048161905-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220630235626828-wet-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 1
+    },
+    {
+      "train": "train/dry_concrete_smooth/2022072821162421-dry-concrete-smooth.jpg",
+      "match": "vali_20k/202207071806111365-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 3,
+      "n_matches": 177
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220711201913146-dry-concrete-smooth.jpg",
+      "match": "vali_20k/202202102102136-dry-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 0,
+      "n_matches": 953
+    },
+    {
+      "train": "train/dry_concrete_smooth/2022021022240610-dry-concrete-smooth.jpg",
+      "match": "test_50k/20220720115047583-wet-concrete-smooth.jpg",
+      "match_split": "test",
+      "distance": 3,
+      "n_matches": 19
+    },
+    {
+      "train": "train/dry_concrete_smooth/2022021118350811-dry-concrete-smooth.jpg",
+      "match": "test_50k/202206221557321869-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 4,
+      "n_matches": 1
+    },
+    {
+      "train": "train/dry_concrete_smooth/20220719222722852-dry-concrete-smooth.jpg",
+      "match": "vali_20k/202206221556221023-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 4,
+      "n_matches": 5
+    },
+    {
+      "train": "train/dry_asphalt_smooth/20220321182050873-dry-asphalt-smooth.jpg",
+      "match": "vali_20k/202202102203229-dry-concrete-smooth.jpg",
+      "match_split": "val",
+      "distance": 4,
+      "n_matches": 1
+    },
+    {
+      "train": "train/dry_asphalt_smooth/202202101600019-dry-asphalt-smooth.jpg",
+      "match": "vali_20k/20220329200523690-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 1,
+      "n_matches": 563
+    },
+    {
+      "train": "train/dry_asphalt_smooth/20220630204936932-dry-asphalt-smooth.jpg",
+      "match": "test_50k/2022022222201354-fresh_snow.jpg",
+      "match_split": "test",
+      "distance": 3,
+      "n_matches": 21
+    },
+    {
+      "train": "train/dry_asphalt_smooth/20220719223153498-dry-asphalt-smooth.jpg",
+      "match": "test_50k/20220622155740678-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 0,
+      "n_matches": 544
+    },
+    {
+      "train": "train/wet_asphalt_smooth/202203242027511-wet-asphalt-smooth.jpg",
+      "match": "vali_20k/202202131546025-fresh_snow.jpg",
+      "match_split": "val",
+      "distance": 4,
+      "n_matches": 4
+    },
+    {
+      "train": "train/wet_asphalt_smooth/202206221605141526-wet-asphalt-smooth.jpg",
+      "match": "vali_20k/202202102102136-dry-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 0,
+      "n_matches": 953
+    },
+    {
+      "train": "train/wet_concrete_smooth/202206221606321461-wet-concrete-smooth.jpg",
+      "match": "vali_20k/202204291157051-wet-asphalt-severe.jpg",
+      "match_split": "val",
+      "distance": 4,
+      "n_matches": 1
+    },
+    {
+      "train": "train/wet_asphalt_smooth/202206221544251916-wet-asphalt-smooth.jpg",
+      "match": "vali_20k/20220727001653450-water-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 4,
+      "n_matches": 3
+    },
+    {
+      "train": "train/wet_concrete_smooth/202206221606331525-wet-concrete-smooth.jpg",
+      "match": "vali_20k/202206221556431061-wet-asphalt-smooth.jpg",
+      "match_split": "val",
+      "distance": 2,
+      "n_matches": 368
+    },
+    {
+      "train": "train/wet_concrete_smooth/20220720115004307-wet-concrete-smooth.jpg",
+      "match": "test_50k/20220330143934272-wet-asphalt-smooth.jpg",
+      "match_split": "test",
+      "distance": 1,
+      "n_matches": 396
+    }
+  ],
+  "full_labels": {
+    "train": {
+      "wet_asphalt_smooth": 79404,
+      "water_asphalt_smooth": 78390,
+      "dry_concrete_smooth": 77938,
+      "dry_asphalt_smooth": 76231,
+      "fresh_snow": 73560,
+      "wet_concrete_smooth": 66955,
+      "dry_gravel": 63417,
+      "melted_snow": 61093,
+      "ice": 54092,
+      "dry_mud": 49348,
+      "wet_mud": 47560,
+      "dry_concrete_severe": 38850,
+      "wet_gravel": 36515,
+      "water_concrete_smooth": 36046,
+      "dry_asphalt_slight": 27023,
+      "wet_asphalt_slight": 24680,
+      "dry_concrete_slight": 16092,
+      "water_mud": 9279,
+      "dry_asphalt_severe": 6610,
+      "water_gravel": 6422,
+      "wet_concrete_slight": 6301,
+      "water_concrete_severe": 5702,
+      "water_asphalt_slight": 4913,
+      "water_concrete_slight": 3924,
+      "wet_concrete_severe": 3854,
+      "water_asphalt_severe": 2581,
+      "wet_asphalt_severe": 2161
+    },
+    "val": {
+      "wet_asphalt_smooth": 820,
+      "dry_concrete_severe": 820,
+      "dry_concrete_slight": 820,
+      "dry_concrete_smooth": 820,
+      "wet_concrete_smooth": 820,
+      "wet_concrete_slight": 820,
+      "dry_asphalt_severe": 820,
+      "dry_asphalt_slight": 820,
+      "wet_asphalt_slight": 820,
+      "wet_mud": 820,
+      "water_mud": 820,
+      "water_asphalt_smooth": 820,
+      "water_asphalt_slight": 820,
+      "water_concrete_smooth": 820,
+      "fresh_snow": 820,
+      "melted_snow": 820,
+      "ice": 820,
+      "water_concrete_severe": 820,
+      "dry_mud": 820,
+      "dry_gravel": 820,
+      "water_gravel": 820,
+      "wet_gravel": 820,
+      "dry_asphalt_smooth": 819,
+      "wet_asphalt_severe": 250,
+      "water_asphalt_severe": 250,
+      "wet_concrete_severe": 250,
+      "water_concrete_slight": 250,
+      "wet_dry_asphalt_smooth": 1
+    },
+    "test": {
+      "wet_asphalt_smooth": 2350,
+      "dry_asphalt_slight": 2350,
+      "dry_concrete_slight": 2350,
+      "dry_concrete_severe": 2350,
+      "dry_concrete_smooth": 2350,
+      "water_concrete_smooth": 2350,
+      "wet_concrete_smooth": 2350,
+      "wet_asphalt_slight": 2350,
+      "dry_mud": 2350,
+      "wet_mud": 2350,
+      "water_mud": 2350,
+      "melted_snow": 2350,
+      "water_asphalt_smooth": 2350,
+      "ice": 2350,
+      "fresh_snow": 2350,
+      "dry_gravel": 2350,
+      "wet_gravel": 2350,
+      "dry_asphalt_smooth": 2349,
+      "dry_asphalt_severe": 800,
+      "wet_concrete_slight": 800,
+      "water_concrete_severe": 800,
+      "water_concrete_slight": 800,
+      "wet_concrete_severe": 800,
+      "water_asphalt_severe": 800,
+      "wet_asphalt_severe": 800,
+      "water_asphalt_slight": 800,
+      "water_gravel": 800,
+      "wet_dry_asphalt_smooth": 1
+    }
+  }
+}

@@ -1,34 +1,47 @@
 @import "tailwindcss";
 
-/* Road survey sheet tokens (PRD pages 10-11).
-   Paper and asphalt swap roles in the dark variant; yellow is only ever a fill with ink text
-   on it, or a focus ring against ink. src/test/contrast.test.ts checks every pair below. */
+/* Road-weather night shift. Every neutral comes from one eleven-step asphalt ramp (a0 to a10,
+   a10 being thermoplastic marking white). Colour lives in the hero photograph and the class tints;
+   the interface itself is asphalt, marking white and frosted glass. Temporary-works yellow means
+   "provisional" and nothing else (the mock-model banner). Committed state is a solid line, a
+   candidate is dashed. The contrast pairs below are checked by src/test/design.test.ts. */
 
 :root {
-  --surface: #ede8dc; /* paper */
-  --text: #16181a; /* asphalt ink */
-  --muted: #4a4d50;
-  --rule: #16181a;
-  --ink: #16181a; /* always asphalt: text on yellow and on tinted fills */
+  --a0: #0a0d0c;
+  --a1: #0f1311;
+  --a2: #151a17;
+  --a3: #1c221f;
+  --a4: #252c28;
+  --a5: #333b36;
+  --a6: #4a534d;
+  --a7: #6c756f;
+  --a8: #9aa29c;
+  --a9: #c3c9c4;
+  --a10: #eceee9;
+
+  --surface: var(--a1);
+  --text: var(--a10);
+  --muted: var(--a8);
+  --rule: var(--a5);
+  --works: #e8b23a; /* temporary-works yellow: provisional only */
+  --lavender: #bdb8ff; /* the hero's class words only */
+  --on-works: var(--a0);
+
+  --glass-fill: rgb(21 26 23 / 0.52);
+  --glass-fill-hover: rgb(43 51 46 / 0.62);
+  --glass-edge: rgb(236 238 233 / 0.16);
+  --glass-edge-hover: rgb(236 238 233 / 0.34);
+  --glass-blur: 18px;
+
   --dur-marker: 300ms;
   --dur-heatmap: 180ms;
-  --dur-stamp: 120ms;
-}
+  --dur-stamp: 160ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-route: 380ms;
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --surface: #16181a;
-    --text: #ede8dc;
-    --muted: #b9b4a8;
-    --rule: #ede8dc;
-  }
-}
-
-:root[data-theme="dark"] {
-  --surface: #16181a;
-  --text: #ede8dc;
-  --muted: #b9b4a8;
-  --rule: #ede8dc;
+  /* Sign-plate corners: controls are small plates, panels slightly larger plates. */
+  --r-plate: 6px;
+  --r-panel: 12px;
 }
 
 @theme inline {
@@ -36,124 +49,422 @@
   --color-text: var(--text);
   --color-muted: var(--muted);
   --color-rule: var(--rule);
-  --color-ink: var(--ink);
+  --color-works: var(--works);
+  --color-a0: var(--a0);
+  --color-a1: var(--a1);
+  --color-a2: var(--a2);
+  --color-a3: var(--a3);
+  --color-a4: var(--a4);
+  --color-a5: var(--a5);
+  --color-a8: var(--a8);
+  --color-a9: var(--a9);
+  --color-a10: var(--a10);
 }
 
 @theme {
-  --color-lane: #f2b705;
-  --color-tint-dry: #b8b0a2;
-  --color-tint-wet: #7c93a8;
-  --color-tint-water: #2e5a88;
-  --color-tint-fresh_snow: #ffffff;
-  --color-tint-melted_snow: #aeb8c2;
-  --color-tint-ice: #a8e6f0;
-  --font-display: "Big Shoulders Display", Impact, "Arial Narrow", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-tint-dry: #8d918b;
+  --color-tint-wet: #4f6f80;
+  --color-tint-water: #2f6d99;
+  --color-tint-fresh_snow: #eef2f4;
+  --color-tint-melted_snow: #9aa7ad;
+  --color-tint-ice: #9fd6e8;
+  /* Barlow: drawn from California highway signs and licence plates. The condensed cut sets every
+     heading the way road lettering is set; the regular cut carries UI text and figures. */
+  --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
 }
 
 html {
-  background: var(--surface);
+  background: var(--a0);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
+  color-scheme: dark;
+  scrollbar-color: var(--a5) var(--a1);
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  margin: 0;
-  background: var(--surface);
+  background: var(--a0);
   min-width: 320px;
+  caret-color: var(--a10);
 }
 
-/* Display type: 56-96 px with a tight 0.9 line height. */
+::selection {
+  background: var(--works);
+  color: var(--on-works);
+}
+
+strong,
+b {
+  font-weight: 600;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: 1px;
+}
+
+body {
+  text-wrap: pretty;
+}
+
+/* Display: Barlow Condensed bold in capitals, set like lettering painted on the road. */
 .display {
   font-family: var(--font-display);
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 0.94;
+  letter-spacing: 0.005em;
   text-transform: uppercase;
-  line-height: 0.9;
+  text-wrap: balance;
+}
+
+/* Chart text lives in SVG user units, and the charts render at roughly 0.7x their viewBox, so
+   their captions and figures are set larger to land at or above 11 px on screen. */
+svg .caption {
+  font-size: 17px;
+}
+svg .data {
+  font-size: 16px;
+}
+
+/* Panel and section headings: condensed, sentence case, never tracked out. */
+.heading {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.15;
   letter-spacing: 0.005em;
 }
 
-/* Mono data: 13 px with 4% letter spacing; nothing on the page is smaller than 11 px. */
+/* Numbers and measurements: tabular Barlow figures, 13 px with 4% tracking. Nothing on the page
+   is set below 11 px. */
 .data {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 13px;
   letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Chart axis captions: condensed, sentence case. */
 .caption {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* Focus: yellow ring with an ink inner ring, so it reads on paper and on asphalt. */
-:focus-visible {
-  outline: 2px solid transparent; /* kept for forced-colours mode */
-  box-shadow:
-    0 0 0 2px var(--ink),
-    0 0 0 5px var(--color-lane);
-}
-
-.btn-primary {
-  background: var(--color-lane);
-  color: var(--ink);
-  border: 2px solid var(--ink);
   font-family: var(--font-display);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.5rem 1.1rem;
-  font-size: 1.25rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.btn-quiet {
-  background: transparent;
-  color: var(--text);
-  border: 2px solid var(--rule);
-  font-family: var(--font-mono);
   font-size: 13px;
-  letter-spacing: 0.04em;
-  padding: 0.45rem 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Focus: a marking-white ring held off the control, so it reads on asphalt, on glass and on the
+   solid white primary button alike. */
+:focus-visible {
+  outline: 2px solid var(--a10);
+  outline-offset: 3px;
+}
+
+/* Frosted glass: the limits bar on the hero and the sample tiles. */
+.glass {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 18px 40px -18px rgb(0 0 0 / 0.75);
+}
+
+/* The one solid action per screen: marking white with asphalt lettering. */
+.btn-solid {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.6rem 1.15rem;
+  border-radius: var(--r-plate);
+  border: 1px solid var(--a10);
+  background: var(--a10);
+  color: var(--a0);
+  font: 600 16px/1 var(--font-sans);
   cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    transform 160ms var(--ease-out);
+}
+.btn-solid:hover {
+  background: var(--a9);
+}
+.btn-solid:active {
+  transform: translateY(1px);
 }
 
+/* Small glass control for in-panel actions (heatmap toggle, clear, full limits). */
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--r-plate);
+  background: rgb(236 238 233 / 0.06);
+  border: 1px solid var(--glass-edge);
+  color: var(--text);
+  font: 600 14px/1 var(--font-sans);
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+.btn-quiet:hover {
+  background: rgb(236 238 233 / 0.12);
+  border-color: var(--glass-edge-hover);
+}
 .btn-quiet[aria-pressed="true"] {
-  background: var(--color-lane);
-  color: var(--ink);
-  border-color: var(--ink);
+  border-color: var(--a10);
+  background: rgb(236 238 233 / 0.14);
 }
 
-/* Class tints. Every class also has its own pattern, so colour is never the only signal. */
+/* Site-bar route links: text over a lane marking. The current page carries a solid
+   marking (committed); hovering another shows it dashed (candidate). */
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border: 0;
+  background: transparent;
+  color: rgb(236 238 233 / 0.7);
+  font: 400 15px/1 var(--font-sans);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 160ms var(--ease-out);
+}
+.nav-link:hover,
+.nav-link[aria-current="page"],
+.nav-link[aria-expanded="true"] {
+  color: var(--text);
+}
+.nav-link[aria-current="page"] {
+  font-weight: 600;
+}
+.lane-marker {
+  position: absolute;
+  inset: auto 0.85rem 4px;
+  height: 3px;
+  border-radius: 1px;
+}
+.nav-link:hover .lane-marker {
+  background: repeating-linear-gradient(90deg, var(--a9) 0 7px, transparent 7px 12px);
+}
+.nav-link[aria-current="page"] .lane-marker {
+  background: var(--a10);
+  view-transition-name: lane-marker;
+}
+
+/* The site bar: dark over the hero photo, solid and blurred over the working screens. */
+.site-bar {
+  background: rgb(5 8 8 / 0.82);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgb(236 238 233 / 0.08);
+}
+.site-bar-overlay {
+  background: linear-gradient(180deg, rgb(5 8 8 / 0.92), rgb(5 8 8 / 0.55));
+}
+
+/* Hero type, after the reference design: one bold grotesk, tight and large. */
+.hero-title {
+  font: 700 clamp(2.6rem, min(5.6vw, 9svh), 4.75rem) / 1 var(--font-sans);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.hero-sub {
+  font: 700 clamp(1.6rem, min(3.2vw, 5.2svh), 2.75rem) / 1.12 var(--font-sans);
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.hero-h2 {
+  font: 700 clamp(2rem, 3.4vw, 2.75rem) / 1.1 var(--font-sans);
+  letter-spacing: -0.02em;
+}
+.text-lavender {
+  color: var(--lavender);
+}
+
+/* Call-to-action pills from the reference: solid marking white, or an outline. */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 50px;
+  padding: 0 1.6rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--a10);
+  background: var(--a10);
+  color: var(--a0);
+  font: 600 16px/1 var(--font-sans);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 160ms var(--ease-out);
+}
+.cta:hover {
+  background: var(--a9);
+  border-color: var(--a9);
+}
+.cta:active {
+  transform: translateY(1px);
+}
+.cta-outline {
+  background: transparent;
+  color: var(--a10);
+  border-color: rgb(236 238 233 / 0.72);
+}
+.cta-outline:hover {
+  background: rgb(236 238 233 / 0.1);
+  border-color: var(--a10);
+}
+.cta-small {
+  min-height: 42px;
+  padding: 0 1.2rem;
+  font-size: 15px;
+}
+
+/* Surface chips: dark glass tiles; a candidate (hover) is dashed, a pinned one solid. */
+.surface-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 60px;
+  padding: 0.55rem 1.1rem 0.55rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgb(236 238 233 / 0.12);
+  background: rgb(10 14 14 / 0.62);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+.surface-chip:hover {
+  background: rgb(24 30 30 / 0.75);
+}
+.surface-chip[data-preview] {
+  border: 1px dashed rgb(236 238 233 / 0.7);
+}
+.surface-chip[aria-pressed="true"] {
+  border: 1px solid var(--a10);
+  background: rgb(236 238 233 / 0.12);
+}
+.chip-icon-dry {
+  color: #f0c27a;
+}
+.chip-icon-wet {
+  color: #8fb4ff;
+}
+.chip-icon-fresh_snow {
+  color: #cfe4ff;
+}
+.chip-icon-ice {
+  color: #9fd6e8;
+}
+
+/* How it works: numbered steps joined by a lane line. */
+.steps {
+  counter-reset: step;
+}
+.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding-top: 3.75rem;
+}
+.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--a10);
+  font: 600 16px/1 var(--font-sans);
+}
+@media (min-width: 768px) {
+  .steps > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 1.25rem;
+    left: 3.25rem;
+    right: -2.25rem;
+    border-top: 2px dashed rgb(236 238 233 / 0.25);
+  }
+}
+
+/* A recessed asphalt panel for quiet notices. */
+.wash {
+  background: var(--a2);
+  border: 1px solid var(--a4);
+  border-radius: var(--r-panel);
+}
+
+/* Candidate outline: the dashed lane line. */
+.dashed {
+  border: 2px dashed var(--a9);
+}
+
+/* Faint asphalt grain behind the working screens. */
+.asphalt {
+  background-color: var(--a1);
+  background-image:
+    radial-gradient(120% 80% at 70% -10%, rgb(236 238 233 / 0.05), transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.9 0 0 0 0 0.92 0 0 0 0 0.9 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Class tints. Every class except dry also has its own pattern, so colour is never the only
+   signal. Pattern ink is asphalt, so it reads on every tint. */
 .tint-dry {
   background-color: var(--color-tint-dry);
 }
 .tint-wet {
   background-color: var(--color-tint-wet);
-  background-image: repeating-linear-gradient(0deg, rgb(22 24 26 / 0.55) 0 1px, transparent 1px 6px);
+  background-image: repeating-linear-gradient(0deg, rgb(10 13 12 / 0.55) 0 1px, transparent 1px 6px);
 }
 .tint-water {
   background-color: var(--color-tint-water);
-  background-image: repeating-linear-gradient(0deg, rgb(237 232 220 / 0.7) 0 2px, transparent 2px 5px);
+  background-image: repeating-linear-gradient(0deg, rgb(236 238 233 / 0.6) 0 2px, transparent 2px 5px);
 }
 .tint-fresh_snow {
   background-color: var(--color-tint-fresh_snow);
-  background-image: radial-gradient(circle, rgb(22 24 26 / 0.8) 1.2px, transparent 1.6px);
+  background-image: radial-gradient(circle, rgb(10 13 12 / 0.75) 1.2px, transparent 1.6px);
   background-size: 8px 8px;
 }
 .tint-melted_snow {
   background-color: var(--color-tint-melted_snow);
-  background-image: repeating-linear-gradient(45deg, rgb(22 24 26 / 0.5) 0 1px, transparent 1px 6px);
+  background-image: repeating-linear-gradient(45deg, rgb(10 13 12 / 0.5) 0 1px, transparent 1px 6px);
 }
 .tint-ice {
   background-color: var(--color-tint-ice);
   background-image:
-    repeating-linear-gradient(45deg, rgb(22 24 26 / 0.45) 0 1px, transparent 1px 7px),
-    repeating-linear-gradient(-45deg, rgb(22 24 26 / 0.45) 0 1px, transparent 1px 7px);
+    repeating-linear-gradient(45deg, rgb(10 13 12 / 0.45) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(-45deg, rgb(10 13 12 / 0.45) 0 1px, transparent 1px 7px);
 }
 
 /* Ruler marker: travels to the predicted class (300 ms, ease-out). */
@@ -169,20 +480,19 @@ body {
   transition: opacity var(--dur-heatmap) ease-in-out;
 }
 
-/* Verdict stamp lands with a short scale settle (120 ms). */
+/* The verdict is painted on: it wipes in left to right like a fresh marking. */
 @keyframes stamp-settle {
   from {
-    transform: rotate(-3deg) scale(1.18);
+    clip-path: inset(0 100% 0 0);
     opacity: 0.4;
   }
   to {
-    transform: rotate(-3deg) scale(1);
+    clip-path: inset(0 0 0 0);
     opacity: 1;
   }
 }
 .stamp {
-  transform: rotate(-3deg);
-  animation: stamp-settle var(--dur-stamp) ease-out;
+  animation: stamp-settle var(--dur-stamp) var(--ease-out);
 }
 
 @keyframes scan {
@@ -190,19 +500,88 @@ body {
     transform: translateY(-100%);
   }
   to {
-    transform: translateY(100%);
+    transform: translateY(300%);
   }
 }
 .scan-bar {
   animation: scan 1.2s linear infinite;
 }
 
+/* Route changes: the page slides the way you are travelling (home, report, study run left to
+   right like lanes), the header holds still and its lane marking glides to the new link. */
+@keyframes route-out-forward {
+  to {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes route-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+@keyframes route-out-back {
+  to {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+@keyframes route-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes route-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes route-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.site-header {
+  view-transition-name: site-header;
+}
+::view-transition-old(root) {
+  animation: route-out-forward 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+::view-transition-new(root) {
+  animation: route-in-forward var(--dur-route) var(--ease-out) both;
+}
+:root[data-nav="back"]::view-transition-old(root) {
+  animation-name: route-out-back;
+}
+:root[data-nav="back"]::view-transition-new(root) {
+  animation-name: route-in-back;
+}
+::view-transition-group(lane-marker) {
+  animation-duration: var(--dur-route);
+  animation-timing-function: var(--ease-out);
+}
+
 /* All motion switches off under the reduced-motion setting. */
 @media (prefers-reduced-motion: reduce) {
+  /* Route changes keep a short crossfade so the switch still registers, with no travel. */
+  :root::view-transition-old(root),
+  :root[data-nav]::view-transition-old(root) {
+    animation: route-fade-out 140ms linear both;
+  }
+  :root::view-transition-new(root),
+  :root[data-nav]::view-transition-new(root) {
+    animation: route-fade-in 140ms linear both;
+  }
+  ::view-transition-group(*) {
+    animation-duration: 0.01ms;
+  }
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
