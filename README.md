@@ -335,3 +335,118 @@ npm run build          # writes frontend/dist, which the API serves at /
   tests with CPU torch, the frontend type check, tests and build, and a Docker build with a smoke test.
 
 Local check without any download or training: `make test`.
+
+## Review routing
+
+The classifier gives one label per image. The review router decides how much **human** review that
+label needs, and writes down why, so every decision can be audited later. Each image gets exactly
+one mode. There is no automatic-accept mode: `light_review` is the lightest outcome.
+
+| Mode | Meaning |
+|---|---|
+| `light_review` | a person glances at the model's label |
+| `full_review` | a person checks the image carefully |
+| `second_review` | two people check it independently |
+
+```mermaid
+flowchart LR
+  P[("baseline_probs.npz<br/>per-model probabilities")] --> C["Case<br/>(image id, probs, true label)"]
+  C -- "CaseView: no label, no file name" --> S1["CalibratedConfidenceProvider<br/>top-1 after temperature T"]
+  C -- "CaseView" --> S2["AgreementProvider<br/>do the models agree?"]
+  S1 --> R{{"ReviewRouter"}}
+  S2 --> R
+  R -- "signals (None if a provider failed)" --> POL["ThresholdPolicy<br/>safety class, agreement,<br/>conf < low / high"]
+  POL -- "mode + reasons" --> R
+  R --> LOG[("decisions.jsonl<br/>append-only, + outcome events")]
+```
+
+- **Modular.** `src/roadcond/routing/` uses only the standard library and NumPy. Providers implement
+  `ConfidenceProvider` and policies implement `ReviewPolicy`. The router receives them through its
+  constructor and knows no concrete class, so a new signal or policy needs no router change.
+- **Rules** (`ThresholdPolicy`, strictest rule wins). Any model predicting a safety-critical class
+  (`ice`) or models disagreeing gives `second_review`. Confidence below `low` (0.50) gives
+  `second_review`, below `high` (0.85) gives `full_review`, otherwise `light_review`. A missing signal
+  or an unusable prediction is never lighter than `full_review`. All numbers are in the `routing:`
+  section of `configs/default.yaml`.
+- **Failures only make review stricter.** A provider that raises or returns NaN, inf or a value
+  outside [0, 1] becomes a missing signal, and the error is logged. A policy that raises gives
+  `full_review` with `fallback:policy_error`. Providers and policies never see the true label or
+  the image's file name (RSCD file names contain the label).
+- **Audit log.** One JSON line per decision with schema version, uuid, UTC timestamp, predictions,
+  signals, provider errors, policy name and version, a sha256 of the routing config, mode, reasons
+  and a fallback flag. `DecisionLog.record_outcome` appends a separate outcome line and never edits
+  old ones, and `read_decisions` joins them. Re-running moves the old log aside instead of deleting it.
+- **Other models later.** Any model can be routed once its probabilities are saved in the same
+  `.npz` format (`roadcond.routing.probs`). A calibrated CNN is not plugged in: it has no real-data
+  results yet.
+
+```bash
+# 1. Save first-seed probabilities of the two classical baselines (val and test).
+#    Uses the cached features in data/processed when --root matches the earlier run (12.5 min on an 11-core laptop CPU).
+python scripts/train_baseline.py --root <RSCD> --eval-test --save-probs
+# 2. Fit T on val, route every test image, write artifacts/routing/{decisions.jsonl,summary.json}
+make route            # = python scripts/route_images.py --archive-existing
+```
+
+### Results: random forest + logistic regression, RSCD test set, seed 0
+
+From `artifacts/routing/summary.json` (policy `threshold` 1.0.0, `high` 0.85, `low` 0.50, safety
+class `ice`; 49,500 test images; random forest is the primary model).
+
+| Mode | Images | Share | Random-forest error rate in mode |
+|---|---:|---:|---:|
+| `light_review` | 8,693 | 17.6% | 10.9% (950 / 8,693) |
+| `full_review` | 13,416 | 27.1% | 27.1% (3,632 / 13,416) |
+| `second_review` | 27,391 | 55.3% | 50.2% (13,752 / 27,391) |
+
+| Measure | Value |
+|---|---:|
+| Random-forest accuracy (test) | 63.0% |
+| Temperature (fitted on val) | 0.478 |
+| ECE on test, before / after scaling (15 bins) | 0.182 / 0.044 |
+| ECE on val, before / after scaling | 0.196 / 0.050 |
+| Error catch rate (wrong predictions sent to full or second review) | 94.8% (17,384 / 18,334) |
+| Share of all images sent to full or second review | 82.4% |
+| Lift over random routing of the same volume | 1.15 |
+| True-ice images sent to second review | 91.5% (2,151 / 2,350) |
+| True-ice images left in light review | 49 |
+| Precision of the ice rule (fired / truly ice) | 25.5% (7,425 fired) |
+| Fallbacks (provider or policy failures) | 0 |
+
+Threshold sweep over `high` (descriptive only, computed on test; `high` was set in the config
+before the run, not chosen from this table):
+
+| `high` | light | full | second | error rate in light |
+|---:|---:|---:|---:|---:|
+| 0.60 | 36.6% | 8.1% | 55.3% | 18.2% |
+| 0.65 | 32.6% | 12.1% | 55.3% | 17.1% |
+| 0.70 | 28.7% | 15.9% | 55.3% | 15.9% |
+| 0.75 | 24.9% | 19.7% | 55.3% | 14.6% |
+| 0.80 | 21.2% | 23.5% | 55.3% | 12.7% |
+| 0.85 | 17.6% | 27.1% | 55.3% | 10.9% |
+| 0.90 | 13.7% | 31.0% | 55.3% | 9.0% |
+| 0.95 | 9.5% | 35.1% | 55.3% | 6.8% |
+
+**How to read this.**
+
+- Mistakes are concentrated in the stricter modes: the error rate rises from 10.9% in light review
+  to 50.2% in second review.
+- The routing is only a little better than random at finding errors. The 94.8% catch rate is
+  earned by sending 82.4% of all images to full or second review, a lift of 1.15 over random
+  routing of the same volume.
+- With classical baselines at 63% accuracy, most images need a careful look. Second review is
+  55.3% of all images and does not move in the sweep, because it comes from the ice rule, model
+  disagreement and `low`, not from `high`.
+- The ice rule sends 91.5% of true-ice images to second review, but only a quarter of the images
+  it flags are truly ice.
+
+**Caveats.**
+
+- The review is simulated: no human outcomes exist yet.
+- These are single-seed results without confidence intervals, from the first-seed models only, so
+  they do not match the 3-seed means in the baseline tables.
+- Temperature scaling of random-forest vote fractions is a heuristic (zero votes are floored at
+  1e-12). T < 1 sharpens the forest's spread-out votes. It is fitted on val, which also chose the
+  forest's depth.
+- Error rates depend on the official val/test class mix, while training was balanced.
+- `config_hash` covers the `routing:` section only, including its paths.

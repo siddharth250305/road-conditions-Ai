@@ -34,12 +34,14 @@ This document explains what has been built in the **Road Condition AI** reposito
    - [3.24 The Survey-Sheet Frontend (Req W1, W2)](#324-the-survey-sheet-frontend-req-w1-w2)
    - [3.25 Docker Image and Continuous Integration](#325-docker-image-and-continuous-integration)
    - [3.26 Results Tables and the Study Write-Up (Req R1, R2)](#326-results-tables-and-the-study-write-up-req-r1-r2)
+   - [3.27 Review Routing (light, full or second human review)](#327-review-routing-light-full-or-second-human-review)
 4. [Step-by-Step Manual Verification Playbook](#4-step-by-step-manual-verification-playbook)
    - Phase 1: [Tests 1-6](#phase-1-data-pipeline-metrics-and-classical-baseline)
    - Phase 2: [Tests 7-13](#phase-2-deep-learning-classifier)
    - Phase 3: [Tests 14-20](#phase-3-cross-country-damage-detection)
    - Phase 4: [Tests 21-28](#phase-4-onnx-export-and-the-demo-api)
    - Phase 5: [Tests 29-35](#phase-5-frontend-docker-ci-and-documentation)
+   - Review routing: [Tests 36-38](#review-routing)
 5. [Reading the Results Against the PRD Hypotheses](#5-reading-the-results-against-the-prd-hypotheses)
 6. [Running the Real Experiments on Google Colab](#6-running-the-real-experiments-on-google-colab)
 7. [Known Limitations & Assumptions](#7-known-limitations--assumptions)
@@ -51,7 +53,7 @@ This document explains what has been built in the **Road Condition AI** reposito
 
 The repository contains the completed code for **Phase 0 (scaffolding)**, **Phase 1 (RSCD data pipeline and classical baseline)**, **Phase 2 (deep-learning surface classifier)**, **Phase 3 (cross-country YOLO damage detection and domain shift)** **Phase 4 (ONNX export and the demo API)** and **Phase 5 (survey-sheet web page, Docker image, CI workflow, README and write-up)**.
 
-**What is verified:** all 167 Python tests and all 75 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
+**What is verified:** all 229 Python tests (222 pass, 7 skip without Ultralytics / Albumentations) and all 75 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
 
 **What is not verified yet:** the GitHub Actions workflow has been written and its Python job simulated locally, but it has **not run on GitHub**; the Hugging Face Space has not been created; no model has been trained on the real RSCD or RDD2022 data, so there are **no real accuracy numbers**. The GPU and mixed-precision (AMP) code paths have not been run, because they need a CUDA machine. The assumed RSCD and RDD2022 folder layouts (section 7) still have to be checked on the real downloads. Mock scores mean nothing: the mock classes differ only by colour or by drawn shapes.
 
@@ -306,6 +308,44 @@ All scripts run from a repo clone without `pip install`.
 - **[`results_tables.py`](src/roadcond/results_tables.py)** and [`scripts/render_results.py`](scripts/render_results.py) turn the saved result files into markdown tables (classifier macro-F1, accuracy and ECE with mean ± std over seeds; per-country detection mAP for zero-shot, augmentation, 10/50/200 labels and pseudo-labels) and write them between `<!-- results:start -->` and `<!-- results:end -->` markers in the README and the write-up. A cell with no data says `pending`; nothing is typed in by hand.
 - **[`docs/study_writeup.md`](docs/study_writeup.md)** (about 1,100 words, 2 to 3 pages) states the question and hypotheses H6 to H8, data and split rules, method, metric definitions, threats to validity and how to reproduce. Section 5 (findings) is deliberately empty: it holds the decision rules and "pending" until real runs exist.
 
+### 3.27 Review Routing (light, full or second human review)
+- **Package**: [`src/roadcond/routing/`](src/roadcond/routing/), standard library and NumPy only (a test checks that importing it loads no torch, scikit-learn or ONNX Runtime).
+- **Input**: [`probs.py`](src/roadcond/routing/probs.py) defines one `.npz` format for per-model class probabilities on val and test (image ids, true labels, classes, seed). `scripts/train_baseline.py --eval-test --save-probs` writes it for the first-seed random forest and logistic regression to `artifacts/results/baseline_probs.npz`, without changing `baseline.json` (checked byte for byte on the real run). A CNN can join later by saving the same format.
+- **Case / CaseView** ([`case.py`](src/roadcond/routing/case.py)): `Case` holds the image id, classes, probabilities and an optional `true_label`. Providers and policies only ever get a `CaseView`, which has no `true_label` **and no `image_id`**, because RSCD file names contain the label (`...-wet-asphalt-smooth.jpg`). Its arrays are read-only; a malformed vector becomes an empty one, so it fails the shape check instead of crashing.
+- **Providers** ([`providers.py`](src/roadcond/routing/providers.py)), `ConfidenceProvider` protocol, values in [0, 1]:
+  - `CalibratedConfidenceProvider(model, T)` gives the top-1 of `softmax(log p / T)`.
+  - `AgreementProvider(models)` gives the share of the other models whose top class matches the first model's.
+  - `fit_temperature` is a log-spaced NLL grid search, fitted on val only. For random-forest vote fractions it is a heuristic.
+- **Policy** ([`policy.py`](src/roadcond/routing/policy.py)): `ThresholdPolicy`, strictest rule wins.
+  - A safety class (`ice`) predicted by any model gives `second_review`.
+  - Disagreement gives `second_review`.
+  - Confidence below `low` gives `second_review`; below `high` gives `full_review`; otherwise `light_review`.
+  - A missing signal or an unusable prediction gives at least `full_review`.
+  - Reasons are short ids such as `safety_class:ice`, `models_disagree`, `conf<0.85`, `missing_signal:agreement`.
+  - There is no automatic-accept mode.
+- **Router** ([`router.py`](src/roadcond/routing/router.py)): providers and policy come in through the constructor.
+  - Any provider exception, or a NaN, inf, out-of-range or non-numeric value, becomes a `None` signal, and the error is recorded.
+  - A raising policy gives `full_review` with `fallback:policy_error`.
+  - If a provider failed and the policy still said `light_review`, the router raises it to `full_review` (`fallback:provider_error`).
+  - A failing log write raises, so no decision goes unrecorded.
+- **Log** ([`log.py`](src/roadcond/routing/log.py)):
+  - Append-only JSONL, one line per decision (schema version 1, uuid4, UTC ISO-8601 timestamp, predictions, signals, provider errors, policy name and version, sha256 of the `routing:` config, mode, reasons, fallback, `human_outcome: null`).
+  - `record_outcome` appends `{"event": "outcome", ...}`.
+  - `read_decisions` joins outcomes to decisions (latest wins) and names any malformed line.
+- **Run** ([`run.py`](src/roadcond/routing/run.py), [`scripts/route_images.py`](scripts/route_images.py), `make route`):
+  - Fits T on val and routes every test image to `artifacts/routing/decisions.jsonl`.
+  - An existing log is refused, or with `--archive-existing` moved aside under a timestamp, never deleted.
+  - Writes `summary.json` with:
+    - mode counts and shares;
+    - ECE and NLL before and after scaling (val and test);
+    - the error rate per mode;
+    - the error catch rate with its review volume and lift;
+    - the ice share in second review, the ice left in light review and the ice rule's precision;
+    - a sweep of `high`, marked descriptive;
+    - the probabilities file's sha256.
+- **Config**: the `routing:` section of [`configs/default.yaml`](configs/default.yaml) holds every threshold, the models, the temperature grid, ECE bins and the sweep range.
+- **Real result** (random forest + logistic regression, RSCD test set, seed 0): see the README "Review routing" section. All numbers there come from `summary.json`.
+
 ---
 
 ## 4. Step-by-Step Manual Verification Playbook
@@ -319,7 +359,7 @@ pip install -e ".[dev,train,detect,export,serve]"   # Phase 1 needs ".[dev,class
 
 ### Phase 1: Data Pipeline, Metrics and Classical Baseline
 
-#### Test 1: Run the Complete 167-Test Suite
+#### Test 1: Run the Complete 229-Test Suite
 ```bash
 pytest -v
 ```
@@ -330,15 +370,16 @@ pytest -v
 | `tests/test_setup.py` | 4 | package import, config loading, friction class order, damage class ids |
 | `tests/test_metrics.py` | 14 | hand-computed confusion matrix, macro-F1, missing classes, bad labels, scikit-learn parity |
 | `tests/test_rscd.py` | 19 | label mapping, both folder layouts, balanced and seeded subset, near-duplicate index vs brute force, planted leaks |
-| `tests/test_baseline.py` | 2 | feature vector length and end-to-end training |
+| `tests/test_baseline.py` | 3 | feature vector length, end-to-end training, opt-in `--save-probs` (results unchanged) |
 | `tests/test_dl.py` | 28 | Phase 2 (see Tests 7-13) |
 | `tests/test_detection.py` | 39 | Phase 3 (see Tests 14-20) |
 | `tests/test_export.py` | 15 | Phase 4: ONNX export (see Tests 21-23, 27, 28) |
 | `tests/test_api.py` | 33 | Phase 4: the demo API (see Tests 21, 24-26, 28) |
 | `tests/test_frontend_mount.py` | 7 | Phase 5: the built page is served after, never instead of, the API routes; path traversal; `/health` details (see Test 29) |
 | `tests/test_results_tables.py` | 6 | Phase 5: results tables and the README markers (see Test 35) |
+| `tests/test_routing.py` | 61 | review routing: providers, policy boundaries, fallbacks, label hiding, audit log, end to end (see Tests 36-38) |
 
-**Success criteria:** `167 passed` in roughly 40 seconds on a laptop CPU. Tests that need scikit-learn or torch are skipped automatically if those are not installed.
+**Success criteria:** `222 passed, 7 skipped` in roughly 45 seconds on a laptop CPU (the 7 need Ultralytics or Albumentations). Tests that need scikit-learn or torch are skipped automatically if those are not installed.
 
 #### Test 2: Verify the Configuration Single Source of Truth
 ```bash
@@ -977,6 +1018,51 @@ python3 scripts/render_results.py --results-dir artifacts/results --readme READM
 pytest tests/test_results_tables.py -v
 ```
 Expected on the mock files: a table with `small_cnn`, `resnet50`, `efficientnet` rows filled, `logreg` / `random_forest` as `pending`, and "Mean ± sample std over 1 seed(s)". With no result files every cell is `pending`. The write-up is [`docs/study_writeup.md`](docs/study_writeup.md): read it against sections 5 and 7 of this guide, and fill its findings after the real runs.
+
+
+### Review Routing
+
+#### Test 36: Run the Routing Tests
+```bash
+pytest tests/test_routing.py -v
+```
+Expected: `61 passed` in a few seconds, with no torch needed (the ECE cross-check against `roadcond.calibration` skips without torch, and the baseline end-to-end test skips without scikit-learn). The tests cover:
+- each provider, including T = 1 vs T ≠ 1, and agreement with 2 and 3 models;
+- policy boundaries at exactly 0.85 and 0.50, and just either side of each;
+- the safety class predicted by either model, and disagreement;
+- fallbacks for a raising provider, NaN, inf, 1.7, a huge number, malformed probability rows and a raising policy;
+- a swapped-in dummy policy and an extra provider, with no router change;
+- the log schema, appended outcomes, the reader join, archiving that keeps outcomes, and determinism;
+- that providers and policies never see the label or the file name.
+
+#### Test 37: Save the Real Baseline Probabilities
+```bash
+python scripts/train_baseline.py --root "<RSCD>" --eval-test --save-probs --results /tmp/baseline_check.json
+cmp /tmp/baseline_check.json artifacts/results/baseline.json && echo identical
+```
+Steps and expected results:
+- With the same `--root` as the run that built `data/processed/rscd_features_*.npz`, the log shows "Loaded cached features" three times and no images are read.
+- The run took 12.5 minutes on an 11-core laptop CPU.
+- `cmp` prints `identical`.
+- `artifacts/results/baseline_probs.npz` holds `val` (19,860) and `test` (49,500) rows for `logreg` and `random_forest`.
+- `--save-probs` without `--eval-test` is refused.
+
+#### Test 38: Route the Real Test Set and Check the Audit Log
+```bash
+make route PY=.venv/bin/python        # about 15 seconds
+python -c "import json; s=json.load(open('artifacts/routing/summary.json')); print(s['label'], s['modes'], s['primary_accuracy'])"
+python -c "import sys; sys.path.insert(0,'src'); from roadcond.routing import read_decisions; d=read_decisions('artifacts/routing/decisions.jsonl'); print(len(d), d[0]['mode'], d[0]['reasons'])"
+```
+Expected:
+- 49,500 decisions, labelled "random forest + logistic regression, RSCD test set, seed 0".
+- `primary_accuracy` equals the seed-0 random-forest test accuracy in `artifacts/results/baseline.json`.
+- Running `make route` again moves the old log to `decisions-<timestamp>.jsonl` and gives the same modes, reasons, signals and config hash for every image.
+
+To record a reviewer's verdict:
+```bash
+python -c "import sys; sys.path.insert(0,'src'); from roadcond.routing import DecisionLog, read_decisions; p='artifacts/routing/decisions.jsonl'; d=read_decisions(p)[0]; DecisionLog(p, d['config_hash']).record_outcome(d['decision_id'], 'confirmed:'+d['predictions']['random_forest'], 'me')"
+```
+`read_decisions` then shows it as that decision's `human_outcome`, and the earlier lines are unchanged.
 
 ---
 
