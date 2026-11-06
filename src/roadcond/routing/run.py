@@ -83,8 +83,10 @@ def sweep_values(sweep: Mapping[str, float]) -> list[float]:
     return [round(float(v), 10) for v in np.arange(start, stop + step / 2, step)]
 
 
-def run_label(probs: ProbsFile) -> str:
-    models = " + ".join(MODEL_LABELS.get(m, m) for m in probs.models)
+def run_label(probs: ProbsFile, primary: str) -> str:
+    """E.g. "random forest + logistic regression, RSCD test set, seed 0" (primary model first)."""
+    ordered = [primary, *(m for m in probs.models if m != primary)]
+    models = " + ".join(MODEL_LABELS.get(m, m) for m in ordered)
     return f"{models}, RSCD test set, seed {probs.seed}"
 
 
@@ -166,7 +168,7 @@ def route_all(
     bins = routing["ece_bins"]
     raw_val, raw_test = val.probs[primary], test.probs[primary]
     summary = {
-        "label": run_label(probs),
+        "label": run_label(probs, primary),
         "probs_file": str(probs_path) if probs_path else None,
         "probs_sha256": sha256_file(probs_path) if probs_path else None,
         "probs_seed": probs.seed,
