@@ -5,6 +5,7 @@ Hyperparameters are chosen on validation macro-F1. The test split is scored only
 
     python -m roadcond.models.baseline --root /path/to/RSCD            # tune on val
     python -m roadcond.models.baseline --root /path/to/RSCD --eval-test
+    python -m roadcond.models.baseline --root /path/to/RSCD --eval-test --save-probs
 """
 
 import argparse
@@ -32,6 +33,8 @@ from sklearn.preprocessing import StandardScaler
 from roadcond.config import load_config, resolve_path
 from roadcond.data.rscd import Record, load_splits
 from roadcond.metrics import classification_report, format_table, mean_std
+from roadcond.routing.probs import SplitProbs
+from roadcond.routing.probs import save_probs as save_probs_file
 
 log = logging.getLogger(__name__)
 
@@ -119,8 +122,16 @@ def run_baseline(
     cache_dir: Path | None = None,
     workers: int = 1,
     eval_test: bool = False,
+    save_probs: Path | None = None,
 ) -> dict[str, Any]:
-    """Tune each model on val per seed; optionally score the chosen model on test once."""
+    """Tune each model on val per seed; optionally score the chosen model on test once.
+
+    save_probs writes predict_proba on val and test of each chosen model of the first seed
+    (the review router's input, see roadcond.routing.probs). It needs eval_test and leaves
+    the returned results unchanged.
+    """
+    if save_probs is not None and not eval_test:
+        raise ValueError("Saving probabilities scores the test split: pass eval_test=True")
     classes = cfg["rscd"]["classes"]
     bcfg = cfg["baseline"]
     fcfg = {k: bcfg[k] for k in FEATURE_KEYS}
@@ -134,6 +145,7 @@ def run_baseline(
     seeds = cfg["project"]["seeds"]
     results: dict[str, Any] = {"classes": classes, "seeds": seeds, "eval_test": eval_test}
     results["models"] = {}
+    first_seed_probs: dict[str, dict[str, np.ndarray]] = {"val": {}, "test": {}}
     for name, mcfg in bcfg["models"].items():
         fixed = {k: v for k, v in mcfg.items() if k != "grid"}
         runs = []
@@ -149,9 +161,30 @@ def run_baseline(
             run = {"seed": seed, "params": params, "val": val}
             if eval_test:
                 run["test"] = classification_report(y["test"], model.predict(X["test"]), classes)
+            if save_probs is not None and seed == seeds[0]:
+                for split in first_seed_probs:
+                    first_seed_probs[split][name] = _class_probs(model, X[split], len(classes))
             runs.append(run)
         results["models"][name] = runs
+    if save_probs is not None:
+        split_probs = {
+            split: SplitProbs(
+                image_ids=np.array([r.path for r in splits[split]]),
+                labels=y[split],
+                probs=first_seed_probs[split],
+            )
+            for split in first_seed_probs
+        }
+        save_probs_file(save_probs, classes, seeds[0], split_probs)
+        log.info("Saved first-seed probabilities %s", save_probs)
     return results
+
+
+def _class_probs(model: ClassifierMixin, X: np.ndarray, n_classes: int) -> np.ndarray:
+    """predict_proba as (N, n_classes), with a zero column for any class absent from training."""
+    full = np.zeros((len(X), n_classes))
+    full[:, model.classes_] = model.predict_proba(X)
+    return full
 
 
 def summary_tables(results: dict[str, Any]) -> str:
@@ -203,7 +236,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="score the final models on the test split (do this once)",
     )
+    parser.add_argument(
+        "--save-probs",
+        action="store_true",
+        help="also save first-seed predict_proba on val and test for the review router "
+        "(needs --eval-test)",
+    )
+    parser.add_argument(
+        "--probs-path",
+        help="probabilities file (default: artifacts/results/baseline_probs.npz)",
+    )
     args = parser.parse_args(argv)
+    if args.save_probs and not args.eval_test:
+        parser.error("--save-probs scores the test split, so it needs --eval-test")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     cfg = load_config(args.config)
@@ -216,8 +261,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     root = pick(args.root, cfg["rscd"]["root"])
     splits = load_splits(pick(args.splits_dir, paths["splits"]))
     results_path = pick(args.results, Path(paths["artifacts"]) / "results" / "baseline.json")
+    probs_path = None
+    if args.save_probs:
+        probs_path = pick(
+            args.probs_path, Path(paths["artifacts"]) / "results" / "baseline_probs.npz"
+        )
     results = run_baseline(
-        cfg, splits, root, pick(args.cache_dir, paths["processed"]), args.workers, args.eval_test
+        cfg,
+        splits,
+        root,
+        pick(args.cache_dir, paths["processed"]),
+        args.workers,
+        args.eval_test,
+        probs_path,
     )
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(results, indent=2) + "\n")

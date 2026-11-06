@@ -59,3 +59,58 @@ def test_run_baseline_end_to_end_on_mock(tmp_path):
     # Second run reuses the cache and gives identical results.
     again = run_baseline(cfg, splits, root, cache_dir=tmp_path / "cache", eval_test=True)
     assert again["models"]["logreg"][0]["test"] == results["models"]["logreg"][0]["test"]
+
+
+def test_save_probs_is_opt_in_and_leaves_results_unchanged(tmp_path):
+    from roadcond.models.baseline import main
+    from roadcond.routing.probs import load_probs
+
+    root = tmp_path / "rscd"
+    make_mock_rscd(root, CFG["rscd"]["split_dirs"], n_per_label=(6, 2, 2))
+    prepare(CFG, root, tmp_path / "splits", train_size=36)
+    cfg = copy.deepcopy(CFG)
+    cfg["project"]["seeds"] = [0, 1]
+    cfg["baseline"]["image_size"] = [48, 72]
+    cfg["baseline"]["models"] = {
+        "logreg": {"max_iter": 200, "grid": {"C": [1.0]}},
+        "random_forest": {"n_estimators": 10, "grid": {"max_depth": [None, 5]}},
+    }
+    splits = load_splits(tmp_path / "splits")
+    cache = tmp_path / "cache"
+    plain = run_baseline(cfg, splits, root, cache_dir=cache, eval_test=True)
+    probs_path = tmp_path / "probs.npz"
+    with_probs = run_baseline(
+        cfg, splits, root, cache_dir=cache, eval_test=True, save_probs=probs_path
+    )
+    assert with_probs == plain  # baseline.json content does not change
+
+    saved = load_probs(probs_path)
+    assert saved.classes == cfg["rscd"]["classes"]
+    assert saved.seed == 0
+    assert saved.models == ["logreg", "random_forest"]
+    for split in ("val", "test"):
+        sp = saved.splits[split]
+        assert list(sp.image_ids) == [r.path for r in splits[split]]
+        assert [saved.classes[i] for i in sp.labels] == [r.friction for r in splits[split]]
+        for p in sp.probs.values():
+            np.testing.assert_allclose(p.sum(axis=1), 1.0, atol=1e-5)  # float32 features
+    # The saved probabilities reproduce the reported first-seed test predictions.
+    rf_test = plain["models"]["random_forest"][0]["test"]
+    pred = saved.splits["test"].probs["random_forest"].argmax(axis=1)
+    assert np.mean(pred == saved.splits["test"].labels) == pytest.approx(rf_test["accuracy"])
+
+    with pytest.raises(ValueError, match="eval_test"):
+        run_baseline(cfg, splits, root, cache_dir=cache, save_probs=probs_path)
+
+    # Command line: off by default, and refused without --eval-test.
+    config = tmp_path / "cfg.yaml"
+    import yaml
+
+    config.write_text(yaml.safe_dump(cfg))
+    common = ["--config", str(config), "--root", str(root), "--cache-dir", str(cache)]
+    common += ["--splits-dir", str(tmp_path / "splits"), "--workers", "1"]
+    default_probs = tmp_path / "out" / "baseline_probs.npz"
+    main([*common, "--eval-test", "--results", str(tmp_path / "out" / "baseline.json")])
+    assert not default_probs.exists()
+    with pytest.raises(SystemExit):
+        main([*common, "--save-probs", "--probs-path", str(default_probs)])
