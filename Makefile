@@ -2,7 +2,7 @@
 PY ?= python3
 PORT ?= 8000
 
-.PHONY: setup test lint frontend demo demo-mock docker
+.PHONY: setup test lint frontend demo demo-mock docker route
 
 setup:  ## Python and frontend dependencies
 	$(PY) -m pip install -e ".[dev,export,serve]"
@@ -28,3 +28,6 @@ demo: frontend  ## Demo on the model bundle in ./serving (see scripts/export_mod
 
 docker:  ## The same demo as the Hugging Face Space image, on http://localhost:7860
 	docker compose up --build
+
+route:  ## Review routing on the saved baseline probabilities -> artifacts/routing (replaces the log)
+	$(PY) scripts/route_images.py --overwrite
