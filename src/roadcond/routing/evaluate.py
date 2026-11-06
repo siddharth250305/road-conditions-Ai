@@ -56,31 +56,62 @@ def error_rate_by_mode(modes: Sequence[str], wrong: np.ndarray) -> dict[str, dic
 
 
 def error_catch_rate(modes: Sequence[str], wrong: np.ndarray) -> dict[str, Any]:
-    """Share of the primary model's wrong predictions routed to full or second review."""
+    """Share of the primary model's wrong predictions routed to full or second review.
+
+    Read it against strict_share, the share of all images sent there: routing everything to
+    full review catches every error. lift = rate / strict_share, where 1.0 is what random
+    routing of the same volume would catch.
+    """
     modes, wrong = np.asarray(modes), np.asarray(wrong, dtype=bool)
-    caught = int((wrong & np.isin(modes, [str(m) for m in STRICT_MODES])).sum())
-    errors = int(wrong.sum())
-    return {"caught": caught, "errors": errors, "rate": _rate(caught, errors)}
+    strict = np.isin(modes, [str(m) for m in STRICT_MODES])
+    caught, errors = int((wrong & strict).sum()), int(wrong.sum())
+    rate = _rate(caught, errors)
+    strict_share = _rate(int(strict.sum()), len(modes))
+    lift = rate / strict_share if rate is not None and strict_share else None
+    return {
+        "caught": caught,
+        "errors": errors,
+        "rate": rate,
+        "strict_share": strict_share,
+        "lift": lift,
+    }
 
 
 def class_to_second_review(
-    modes: Sequence[str], true_labels: Sequence[str], cls: str
+    modes: Sequence[str],
+    true_labels: Sequence[str],
+    reasons: Sequence[Sequence[str]],
+    cls: str,
 ) -> dict[str, Any]:
-    """How many images truly of class cls were routed to second_review."""
+    """How images truly of class cls were routed, and how precise the cls safety rule is.
+
+    share: true-cls images sent to second_review (compare with the overall second_review share).
+    rule_precision: of the images the "safety_class:<cls>" rule fired on, the share truly cls.
+    """
     modes, true_labels = np.asarray(modes), np.asarray(true_labels)
     of_class = true_labels == cls
     count = int(of_class.sum())
     second = int((of_class & (modes == ReviewMode.SECOND)).sum())
-    return {"count": count, "second_review": second, "share": _rate(second, count)}
+    fired = np.array([f"safety_class:{cls}" in r for r in reasons], dtype=bool)
+    return {
+        "count": count,
+        "second_review": second,
+        "share": _rate(second, count),
+        "left_in_light_review": int((of_class & (modes == ReviewMode.LIGHT)).sum()),
+        "rule_fired": int(fired.sum()),
+        "rule_precision": _rate(int((fired & of_class).sum()), int(fired.sum())),
+    }
 
 
-def light_review_stats(modes: Sequence[str], wrong: np.ndarray) -> dict[str, Any]:
-    """Share of images in light_review and the primary model's error rate among them."""
+def mode_shares(modes: Sequence[str], wrong: np.ndarray) -> dict[str, Any]:
+    """Percentage of images per mode, and the primary model's error rate in light_review."""
     modes, wrong = np.asarray(modes), np.asarray(wrong, dtype=bool)
     light = modes == ReviewMode.LIGHT
     count = int(light.sum())
-    return {
-        "light_review_count": count,
-        "light_review_pct": 100.0 * count / len(modes) if len(modes) else 0.0,
-        "light_review_error_rate": _rate(int(wrong[light].sum()), count),
+    out: dict[str, Any] = {
+        f"{m}_pct": 100.0 * int((modes == m).sum()) / len(modes) if len(modes) else 0.0
+        for m in ReviewMode
     }
+    out["light_review_count"] = count
+    out["light_review_error_rate"] = _rate(int(wrong[light].sum()), count)
+    return out

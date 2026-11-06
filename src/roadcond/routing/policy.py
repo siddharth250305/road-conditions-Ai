@@ -49,6 +49,7 @@ class ThresholdPolicy:
     """Fixed rules applied in order; the strictest mode any rule triggers wins.
 
     1. any model predicts a safety-critical class  -> second_review   "safety_class:<c>"
+       any model's probabilities are unusable      -> at least full   "unusable_prediction:<m>"
     2. agreement < 1.0                             -> second_review   "models_disagree"
     3. confidence < low                            -> second_review   "conf<low"
        confidence < high                           -> full_review     "conf<high"
@@ -96,8 +97,10 @@ class ThresholdPolicy:
             if reason not in reasons:
                 reasons.append(reason)
 
-        for predicted in case_view.predictions.values():
-            if predicted in self.safety_critical_classes:
+        for model, predicted in case_view.predictions.items():
+            if predicted is None:  # its vector is unusable, so it cannot vouch for safety
+                trigger(ReviewMode.FULL, f"unusable_prediction:{model}")
+            elif predicted in self.safety_critical_classes:
                 trigger(ReviewMode.SECOND, f"safety_class:{predicted}")
 
         missing = []

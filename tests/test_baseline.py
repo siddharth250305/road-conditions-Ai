@@ -1,4 +1,5 @@
 import copy
+import json
 
 import numpy as np
 import pytest
@@ -82,7 +83,8 @@ def test_save_probs_is_opt_in_and_leaves_results_unchanged(tmp_path):
     with_probs = run_baseline(
         cfg, splits, root, cache_dir=cache, eval_test=True, save_probs=probs_path
     )
-    assert with_probs == plain  # baseline.json content does not change
+    # baseline.json is written as json.dumps(results, indent=2): compare the serialised bytes.
+    assert json.dumps(with_probs, indent=2) == json.dumps(plain, indent=2)
 
     saved = load_probs(probs_path)
     assert saved.classes == cfg["rscd"]["classes"]

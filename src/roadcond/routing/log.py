@@ -92,7 +92,8 @@ class DecisionLog:
 def read_decisions(path: str | Path) -> list[dict[str, Any]]:
     """Decisions in log order, each with human_outcome set to its latest outcome (or None).
 
-    Raises ValueError for an outcome that names no decision in the log.
+    Raises ValueError, naming the line, for a malformed line, a duplicate decision, or an
+    outcome that names no decision in the log.
     """
     decisions: dict[str, dict[str, Any]] = {}
     outcomes: list[dict[str, Any]] = []
@@ -100,10 +101,15 @@ def read_decisions(path: str | Path) -> list[dict[str, Any]]:
         for number, line in enumerate(f, 1):
             if not line.strip():
                 continue
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as err:  # e.g. a write cut off by a crash
+                raise ValueError(f"line {number}: not valid JSON ({err})") from None
+            if not isinstance(record, dict) or "decision_id" not in record:
+                raise ValueError(f"line {number}: not a decision or outcome record")
             if record.get("event") == OUTCOME_EVENT:
                 outcomes.append(record)
-            elif record.get("decision_id") in decisions:
+            elif record["decision_id"] in decisions:
                 raise ValueError(f"line {number}: duplicate decision {record['decision_id']}")
             else:
                 decisions[record["decision_id"]] = dict(record)

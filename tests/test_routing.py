@@ -30,6 +30,7 @@ from roadcond.routing import (
     read_decisions,
 )
 from roadcond.routing.evaluate import (
+    class_to_second_review,
     error_catch_rate,
     error_rate_by_mode,
     expected_calibration_error,
@@ -476,8 +477,19 @@ def test_summary_metrics_on_a_hand_made_run():
     by_mode = error_rate_by_mode(modes, wrong)
     assert by_mode["light_review"]["error_rate"] == 0.5
     assert by_mode["full_review"]["error_rate"] == 1.0
-    assert error_catch_rate(modes, wrong) == {"caught": 2, "errors": 3, "rate": 2 / 3}
+    catch = error_catch_rate(modes, wrong)
+    assert (catch["caught"], catch["errors"], catch["rate"]) == (2, 3, 2 / 3)
+    assert catch["strict_share"] == 0.6
+    assert catch["lift"] == pytest.approx((2 / 3) / 0.6)
     assert error_catch_rate(modes, np.zeros(5, bool))["rate"] is None
+    assert error_catch_rate(modes, np.zeros(5, bool))["lift"] is None
+
+    true = ["ice", "ice", "wet", "ice", "dry"]
+    reasons = [[], ["safety_class:ice"], ["safety_class:ice"], ["safety_class:ice"], []]
+    ice = class_to_second_review(modes, true, reasons, "ice")
+    assert (ice["count"], ice["second_review"], ice["share"]) == (3, 1, 1 / 3)
+    assert ice["left_in_light_review"] == 2
+    assert (ice["rule_fired"], ice["rule_precision"]) == (3, 2 / 3)
 
 
 def test_ece_matches_roadcond_calibration():
@@ -528,6 +540,10 @@ def check_summary(summary, decisions_path, n):
     assert [s["high"] for s in summary["threshold_sweep"]] == sweep_values(ROUTING["sweep"])
     shares = [s["light_review_pct"] for s in summary["threshold_sweep"]]
     assert shares == sorted(shares, reverse=True)  # a higher bar leaves fewer light reviews
+    for row in summary["threshold_sweep"]:
+        total = row["light_review_pct"] + row["full_review_pct"] + row["second_review_pct"]
+        assert total == pytest.approx(100.0)
+    assert "Descriptive only" in summary["threshold_sweep_note"]
     decisions = read_decisions(decisions_path)
     assert len(decisions) == n
     by_mode = {m: sum(d["mode"] == m for d in decisions) for m in summary["modes"]}
@@ -560,8 +576,9 @@ def test_route_images_end_to_end_on_mock_probabilities(tmp_path):
 
     with pytest.raises(FileExistsError):
         route_all(ROUTING, probs, out)  # the audit log is never silently replaced
-    again = route_all(ROUTING, probs, out, overwrite=True)
+    again = route_all(ROUTING, probs, out, archive_existing=True)
     assert again["modes"] == summary["modes"] and again["config_hash"] == summary["config_hash"]
+    assert again["archived_previous_log"] is not None
 
 
 def test_route_images_command_line(tmp_path, capsys):
@@ -569,6 +586,13 @@ def test_route_images_command_line(tmp_path, capsys):
     out = tmp_path / "routing"
     route_main(["--probs", str(tmp_path / "probs.npz"), "--out-dir", str(out)])
     assert (out / "summary.json").is_file() and (out / "decisions.jsonl").is_file()
+    summary = json.loads((out / "summary.json").read_text())
+    assert len(summary["probs_sha256"]) == 64
+    args = ["--probs", str(tmp_path / "probs.npz"), "--out-dir", str(out)]
+    with pytest.raises(FileExistsError):
+        route_main(args)
+    route_main([*args, "--archive-existing"])
+    assert len(list(out.glob("decisions-*.jsonl"))) == 1
     assert "light_review" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="--save-probs"):
         route_main(["--probs", str(tmp_path / "missing.npz"), "--out-dir", str(out)])
@@ -599,3 +623,112 @@ def test_baseline_probabilities_route_end_to_end(tmp_path):
     out = tmp_path / "routing"
     summary = route_all(ROUTING, probs, out)
     check_summary(summary, out / "decisions.jsonl", len(probs.splits["test"].image_ids))
+
+
+# --- review findings: leaks, hostile input, log safety ---------------------------------------
+
+
+def test_view_hides_the_image_id_because_rscd_file_names_carry_the_label():
+    leaky = Case("test_50k/2022012523413511-ice-asphalt-smooth.jpg", CLASSES, case().probs, "ice")
+    view = leaky.view()
+    assert not hasattr(view, "image_id")
+    assert "ice-asphalt" not in repr(view)
+    routed = ReviewRouter([Fixed("s", 0.9)], policy(agreement_models=["random_forest"])).route(
+        leaky
+    )
+    assert routed.image_id == leaky.image_id  # the log still records which image it was
+
+
+@pytest.mark.parametrize(
+    "bad_vector",
+    [["a", "b", "c", "d", "e", "f"], [None] * 6, [[0.5, 0.5], [1.0]], [0.2] * 5, [math.nan] * 6],
+)
+def test_malformed_probabilities_never_crash_and_never_route_lighter(tmp_path, bad_vector):
+    path = tmp_path / "d.jsonl"
+    bad = Case("x", CLASSES, {"random_forest": bad_vector, "logreg": probs_for("wet", 0.95)})
+    routed = router(DecisionLog(path, "abc")).route(bad)
+    assert routed.mode.rank >= FULL.rank
+    assert routed.fallback is True
+    assert routed.predictions["random_forest"] is None
+    assert len(read_decisions(path)) == 1
+
+
+def test_huge_signal_is_rejected_not_raised():
+    routed = router(providers=[Fixed("calibrated_confidence", 10**400)]).route(case())
+    assert routed.mode.rank >= FULL.rank and routed.fallback
+
+
+def test_unusable_prediction_from_an_unused_model_still_blocks_light_review():
+    c = Case(
+        "x",
+        CLASSES,
+        {
+            "random_forest": probs_for("wet", 0.95),
+            "logreg": probs_for("wet", 0.95),
+            "cnn": [math.nan] * 6,  # not read by any provider
+        },
+    )
+    routed = router().route(c)
+    assert routed.mode == FULL
+    assert "unusable_prediction:cnn" in routed.reasons
+
+
+def test_policy_whose_name_raises_still_gets_logged(tmp_path):
+    class NoName:
+        version = "0"
+
+        @property
+        def name(self):
+            raise RuntimeError("no name")
+
+        def decide(self, signals, case_view):
+            return Decision(mode=LIGHT, reasons=[])
+
+    routed = router(DecisionLog(tmp_path / "d.jsonl", "abc"), pol=NoName()).route(case())
+    assert routed.policy_name == "unknown"
+
+
+def test_misspelled_safety_class_is_refused(tmp_path):
+    probs = mock_probs_file(tmp_path / "probs.npz")
+    with pytest.raises(ValueError, match="Safety classes"):
+        route_all({**ROUTING, "safety_critical_classes": ["Ice"]}, probs, tmp_path / "out")
+
+
+def test_archiving_keeps_recorded_outcomes(tmp_path):
+    probs = mock_probs_file(tmp_path / "probs.npz")
+    out = tmp_path / "out"
+    route_all(ROUTING, probs, out)
+    first = read_decisions(out / "decisions.jsonl")[0]
+    DecisionLog(out / "decisions.jsonl", "abc").record_outcome(
+        first["decision_id"], "confirmed:wet", "reviewer-1"
+    )
+    summary = route_all(ROUTING, probs, out, archive_existing=True)
+    archived = read_decisions(summary["archived_previous_log"])
+    assert archived[0]["human_outcome"]["outcome"] == "confirmed:wet"
+    assert all(d["human_outcome"] is None for d in read_decisions(out / "decisions.jsonl"))
+
+
+def test_reader_names_the_bad_line(tmp_path):
+    path = tmp_path / "d.jsonl"
+    router(DecisionLog(path, "abc")).route(case())
+    with path.open("a") as f:
+        f.write('{"schema_version": 1, "decision_id": "cut-off')  # crash mid-write
+    with pytest.raises(ValueError, match="line 2: not valid JSON"):
+        read_decisions(path)
+    path.write_text('{"no": "id"}\n')
+    with pytest.raises(ValueError, match="line 1"):
+        read_decisions(path)
+
+
+def test_routing_core_imports_no_heavy_frameworks():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, roadcond.routing, roadcond.routing.run; "
+        "print(sorted(m for m in ('torch', 'sklearn', 'onnxruntime') if m in sys.modules))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[]"

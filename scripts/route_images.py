@@ -1,6 +1,6 @@
 """Route test images to review modes. Runs from a repo clone without pip install.
 
-python scripts/route_images.py [--probs artifacts/results/baseline_probs.npz] [--overwrite]
+python scripts/route_images.py [--probs artifacts/results/baseline_probs.npz] [--archive-existing]
 """
 
 import sys

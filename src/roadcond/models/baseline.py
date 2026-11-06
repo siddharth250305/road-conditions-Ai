@@ -249,6 +249,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.save_probs and not args.eval_test:
         parser.error("--save-probs scores the test split, so it needs --eval-test")
+    if args.probs_path and not args.save_probs:
+        parser.error("--probs-path only applies with --save-probs")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     cfg = load_config(args.config)

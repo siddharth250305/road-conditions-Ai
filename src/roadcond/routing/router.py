@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from roadcond.routing.case import Case, is_valid_signal
+from roadcond.routing.case import Case, CaseView, is_valid_signal
 from roadcond.routing.policy import ReviewMode, ReviewPolicy, strictest
 from roadcond.routing.providers import ConfidenceProvider
 
@@ -50,7 +50,7 @@ class ReviewRouter:
         self.policy = policy
         self.log = log
 
-    def _signals(self, view) -> tuple[dict[str, float | None], dict[str, str]]:
+    def _signals(self, view: CaseView) -> tuple[dict[str, float | None], dict[str, str]]:
         signals: dict[str, float | None] = {}
         errors: dict[str, str] = {}
         for provider in self.providers:
@@ -67,8 +67,15 @@ class ReviewRouter:
                 errors[provider.name] = f"invalid signal {value!r}: need a number in [0, 1]"
         return signals, errors
 
+    def _policy_id(self) -> tuple[str, str]:
+        try:
+            return str(self.policy.name), str(self.policy.version)
+        except Exception:
+            return "unknown", "unknown"
+
     def route(self, case: Case) -> RoutedDecision:
-        view = case.view()  # providers and the policy never see true_label
+        """Route one case. A failing log write raises: no decision goes unrecorded."""
+        view = case.view()  # providers and the policy never see true_label or image_id
         signals, errors = self._signals(view)
         fallback = bool(errors)
         try:
@@ -82,14 +89,15 @@ class ReviewRouter:
             # Guard against a policy that ignores missing signals.
             mode = strictest(mode, ReviewMode.FULL)
             reasons.append(PROVIDER_ERROR_REASON)
+        policy_name, policy_version = self._policy_id()
         routed = RoutedDecision(
             decision_id=str(uuid.uuid4()),
             image_id=case.image_id,
             predictions=dict(view.predictions),
             signals=signals,
             provider_errors=errors,
-            policy_name=self.policy.name,
-            policy_version=self.policy.version,
+            policy_name=policy_name,
+            policy_version=policy_version,
             mode=mode,
             reasons=reasons,
             fallback=fallback,

@@ -1,7 +1,10 @@
 """Confidence providers: each turns one case into a single signal in [0, 1].
 
 Temperature scaling lives here in NumPy so routing needs no torch: probabilities are scaled as
-softmax(log p / T), which equals softmax(z / T) for the logits z the probabilities came from.
+softmax(log p / T). For a softmax model (logistic regression, a CNN) that equals softmax(z / T)
+on its logits z. For a random forest it is only a heuristic: vote fractions are multiples of
+1 / n_trees with many exact zeros, which are floored at EPS, and one scalar T can only sharpen or
+flatten them uniformly.
 """
 
 from collections.abc import Sequence
