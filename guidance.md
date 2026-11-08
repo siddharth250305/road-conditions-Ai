@@ -36,13 +36,14 @@ This document explains what has been built in the **Road Condition AI** reposito
    - [3.26 Results Tables and the Study Write-Up (Req R1, R2)](#326-results-tables-and-the-study-write-up-req-r1-r2)
    - [3.27 Review Routing (light, full or second human review)](#327-review-routing-light-full-or-second-human-review)
    - [3.28 Live Review Routing (API, reviewer queue, report)](#328-live-review-routing-api-reviewer-queue-report)
+   - [3.29 Learned Review Policy and the Policy Comparison](#329-learned-review-policy-and-the-policy-comparison)
 4. [Step-by-Step Manual Verification Playbook](#4-step-by-step-manual-verification-playbook)
    - Phase 1: [Tests 1-6](#phase-1-data-pipeline-metrics-and-classical-baseline)
    - Phase 2: [Tests 7-13](#phase-2-deep-learning-classifier)
    - Phase 3: [Tests 14-20](#phase-3-cross-country-damage-detection)
    - Phase 4: [Tests 21-28](#phase-4-onnx-export-and-the-demo-api)
    - Phase 5: [Tests 29-35](#phase-5-frontend-docker-ci-and-documentation)
-   - Review routing: [Tests 36-41](#review-routing)
+   - Review routing: [Tests 36-43](#review-routing)
 5. [Reading the Results Against the PRD Hypotheses](#5-reading-the-results-against-the-prd-hypotheses)
 6. [Running the Real Experiments on Google Colab](#6-running-the-real-experiments-on-google-colab)
 7. [Known Limitations & Assumptions](#7-known-limitations--assumptions)
@@ -54,7 +55,7 @@ This document explains what has been built in the **Road Condition AI** reposito
 
 The repository contains the completed code for **Phase 0 (scaffolding)**, **Phase 1 (RSCD data pipeline and classical baseline)**, **Phase 2 (deep-learning surface classifier)**, **Phase 3 (cross-country YOLO damage detection and domain shift)** **Phase 4 (ONNX export and the demo API)** and **Phase 5 (survey-sheet web page, Docker image, CI workflow, README and write-up)**.
 
-**What is verified:** all 263 Python tests (256 pass, 7 skip without Ultralytics / Albumentations) and all 104 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
+**What is verified:** all 310 Python tests (303 pass, 7 skip without Ultralytics / Albumentations) and all 104 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
 
 **What is not verified yet:** the GitHub Actions workflow has been written and its Python job simulated locally, but it has **not run on GitHub**; the Hugging Face Space has not been created; no model has been trained on the real RSCD or RDD2022 data, so there are **no real accuracy numbers**. The GPU and mixed-precision (AMP) code paths have not been run, because they need a CUDA machine. The assumed RSCD and RDD2022 folder layouts (section 7) still have to be checked on the real downloads. Mock scores mean nothing: the mock classes differ only by colour or by drawn shapes.
 
@@ -358,6 +359,24 @@ All scripts run from a repo clone without `pip install`.
 - **Report** ([`monitor.py`](src/roadcond/routing/monitor.py), `make review-report`): reads the live log and `routing.json` and, for decisions made with the current config, gives per-mode open and finished reviews, the model's error rate per mode against the reviewers' agreed labels (with a 95% Wilson interval), the error catch rate, the ice share in second review and how often second reviewers disagree. It raises an alert when the lower bound of the live light-review error rate is above the offline check's rate and at least 30 light reviews are finished.
 - **Real result** (ResNet-50 served bundle, RSCD test set, seed not recorded): see the README "Live review routing" section. All numbers there come from `artifacts/routing_cnn/summary.json`.
 
+### 3.29 Learned Review Policy and the Policy Comparison
+- **Margin provider** ([`providers.py`](src/roadcond/routing/providers.py)): `MarginProvider(model, T)` gives the top-1 minus top-2 probability after temperature scaling, in [0, 1], with the same contract and router fallbacks as the other providers. `run.PROVIDERS` registers it, and `routing.extra_providers: [margin]` switches it on (off by default).
+- **Learned policy** ([`learned.py`](src/roadcond/routing/learned.py)): `LearnedPolicy` implements `ReviewPolicy`.
+  - Hard rules first, which no model can override: a safety class predicted by any model or disagreement gives `second_review`; an unusable prediction or a missing signal gives at least `full_review`.
+  - Then a logistic regression (NumPy, Newton/IRLS with step halving, standardised features, L2 `routing.l2`, intercept not penalised) on calibrated confidence, margin and, with two or more models, agreement predicts the risk that the primary model is wrong. Risk >= `cut_second` gives `second_review`, >= `cut_full` gives `full_review`, otherwise `light_review`; reasons look like `risk>=0.389` (cutoffs shown to 3 significant figures).
+  - `fit_policy` takes val features only (it refuses any other split). The cutoffs follow the equal-workload rule: on val, the learned policy's light / full / second counts equal the threshold policy's (closest the ties allow; a cutoff sits midway between two distinct risk values).
+- **Weights file** (`routing.learned_weights`, e.g. `artifacts/routing_cnn/learned_policy.json`): coefficients, intercept, standardisation means and stds, feature names, both cutoffs, val counts, l2, temperature, the setup it was fitted for, the probabilities file's path and sha256, and `created_at`. The policy version is `<policy_version>+<first 12 hex of the file's sha256>`, so each decision line names its weights. A missing or malformed file, one fitted on another probabilities file, or one fitted for other settings (primary model, agreement models, safety classes, temperature grid, l2) is refused with a clear `LearnedPolicyError`. The thresholds it was matched to are recorded but not enforced, because the learned policy does not use them.
+- **Registration**: `"learned"` in `run.POLICIES`; the default `routing.policy` stays `threshold`. `route_images.py --bundle-dir` refuses any policy but `threshold`, because the live API builds only the confidence provider.
+- **Comparison** ([`compare.py`](src/roadcond/routing/compare.py), [`scripts/fit_learned_policy.py`](scripts/fit_learned_policy.py), [`scripts/compare_policies.py`](scripts/compare_policies.py), `make compare-policies`, `make compare-policies-cnn`):
+  - The fit routes val through the router with the threshold policy and reads each image's signals from the router's own output, so the model is fitted on exactly what it sees when routing.
+  - The comparison routes the test split with both policies through the same `ReviewRouter` and providers, one decision log each in `<out_dir>/comparison_logs/` (an existing log is refused, or moved aside with `--archive-existing`).
+  - `policy_comparison.json` and `.md` report, for each policy: mode shares and counts, the error rate per mode, the error catch rate, true ice in second review and left in light review, fallbacks and routing time per 1,000 images.
+  - Paired bootstrap over test images (1,000 resamples, seed 0): 95% percentile intervals for learned minus threshold in error catch rate, light-review error rate and light-review share, each with an `includes_zero` flag and a plain sentence.
+  - Equal-catch view: `cut_full` chosen on val as the highest cutoff whose val catch rate reaches the threshold policy's, then routed on test.
+  - Also recorded: the share of images the hard rules alone send to second review, on val and test.
+- **Change scenarios**: [`docs/change_scenarios.md`](docs/change_scenarios.md) records, from git, the files and lines each change needed; `router.py`, the Protocols and `log.py` changed by 0 lines.
+- **Real result**: the learned policy is not better. Random forest + LR, equal workload: error catch rate +0.044 points (95% CI -0.027 to +0.115), no measurable difference. ResNet-50, equal workload: -0.408 points (95% CI -0.596 to -0.220), slightly worse. Full tables in the README section "A learned policy, compared with the threshold policy"; all numbers come from the two `policy_comparison.json` files.
+
 ---
 
 ## 4. Step-by-Step Manual Verification Playbook
@@ -371,7 +390,7 @@ pip install -e ".[dev,train,detect,export,serve]"   # Phase 1 needs ".[dev,class
 
 ### Phase 1: Data Pipeline, Metrics and Classical Baseline
 
-#### Test 1: Run the Complete 263-Test Suite
+#### Test 1: Run the Complete 310-Test Suite
 ```bash
 pytest -v
 ```
@@ -391,8 +410,9 @@ pytest -v
 | `tests/test_results_tables.py` | 6 | Phase 5: results tables and the README markers (see Test 35) |
 | `tests/test_routing.py` | 61 | review routing: providers, policy boundaries, fallbacks, label hiding, audit log, end to end (see Tests 36-38) |
 | `tests/test_live_routing.py` | 34 | live review routing: `routing.json` checks, review states, queue order, restart, concurrent writes, failed log writes, reviewer endpoints and tokens, the review report (see Tests 39-41) |
+| `tests/test_learned_policy.py` | 47 | margin provider, NumPy logistic regression, the learned policy's hard rules and cutoffs, weights-file versioning, val-only fitting, paired bootstrap, fit and compare end to end (see Tests 42-43) |
 
-**Success criteria:** `256 passed, 7 skipped` in roughly 45 seconds on a laptop CPU (the 7 need Ultralytics or Albumentations). Tests that need scikit-learn or torch are skipped automatically if those are not installed.
+**Success criteria:** `303 passed, 7 skipped` in roughly 45 seconds on a laptop CPU (the 7 need Ultralytics or Albumentations). Tests that need scikit-learn or torch are skipped automatically if those are not installed.
 
 #### Test 2: Verify the Configuration Single Source of Truth
 ```bash
@@ -1109,6 +1129,23 @@ Expected:
 - The report counts it as a finished second review; with fewer than 30 finished light reviews it says it is too early to judge.
 - Delete or rename `serving/routing.json`, restart: `/predict` answers `"review": null` and `/health` says why routing is off.
 - Real run on the ResNet-50 bundle: an RSCD ice photo got `second_review` (`safety_class:ice`, review confidence 87%), a dry photo at 48% `second_review` (`conf<0.5`), a wet photo at 69% `full_review`. Alex reviewed the ice photo in the browser, Sam confirmed it through the API and it was done; a repeat review answered 409; the report counted one finished second review and one corrected full review. The queue was checked at 1440 px and 390 px wide (no horizontal scroll).
+
+#### Test 42: Run the Learned-Policy Tests
+```bash
+pytest tests/test_learned_policy.py -v
+```
+Expected: `47 passed` in about 2 seconds, NumPy only. Among them: the fit recovers known coefficients on 100,000 synthetic rows; an ice prediction gives `second_review` at a predicted risk of 1e-9; the equal-workload cutoffs match the target counts to within one image; scrambling the test split changes neither the weights nor any cutoff; a raising policy gives `fallback:policy_error`.
+
+#### Test 43: Fit and Compare on the Real Probabilities
+```bash
+make compare-policies PY=.venv/bin/python        # random forest + LR, about 20 seconds
+make compare-policies-cnn PY=.venv/bin/python    # ResNet-50, about 20 seconds
+```
+Expected:
+- `artifacts/routing/learned_policy.json` and `artifacts/routing_cnn/learned_policy.json` with `"fitted_on": "val"` and `"max_count_gap": 0` (val counts matched exactly on both real runs).
+- `policy_comparison.json` and `.md` next to them; the learned policy's version in both decision logs under `comparison_logs/` ends in the weights file's first 12 hex characters (`sha256sum` the file to check).
+- Edit `l2` in the config and rerun only `scripts/compare_policies.py`: it refuses the stale weights.
+- Real run: val counts matched exactly on both setups; 0 fallbacks. Random forest + LR, equal workload: catch rate 94.8% threshold, 94.9% learned, difference +0.044 points (95% CI -0.027 to +0.115). ResNet-50: 87.4% and 87.0%, difference -0.408 points (95% CI -0.596 to -0.220). The learned policy is not better on either setup.
 
 ---
 

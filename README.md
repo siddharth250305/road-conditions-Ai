@@ -1,5 +1,12 @@
 # Road Condition AI
 
+**In short.** Road-surface (friction) classification on RSCD and a cross-country road-damage study,
+served as a web demo; each prediction is routed to light, full or second human review, with logged
+reasons ([review routing](#review-routing)). [Served ResNet-50](#results-resnet-50-served-onnx-bundle-rscd-test-set-seed-not-recorded), RSCD test set: 55.1% of images need
+only a glance (model wrong on 3.6% of them), and 87.4% of its mistakes reach a careful review. A
+learned review policy did not beat the threshold rules: error catch rate -0.408 points (95% CI
+-0.596 to -0.220) on ResNet-50, +0.044 (-0.027 to +0.115) on RF + LR ([comparison](#a-learned-policy-compared-with-the-threshold-policy)).
+
 Camera-based **road surface (friction) classification** on RSCD, plus a **cross-country road-damage
 detection study** on RDD2022, served as a small web demo. It is a student portfolio project: the
 code, the experiments and the demo are real, and every number below comes from saved result files
@@ -362,7 +369,8 @@ flowchart LR
 
 - **Modular.** `src/roadcond/routing/` uses only the standard library and NumPy. Providers implement
   `ConfidenceProvider` and policies implement `ReviewPolicy`. The router receives them through its
-  constructor and knows no concrete class, so a new signal or policy needs no router change.
+  constructor and knows no concrete class, so a new signal or policy needs no router change
+  (measured on two real changes in [`docs/change_scenarios.md`](docs/change_scenarios.md)).
 - **Rules** (`ThresholdPolicy`, strictest rule wins). Any model predicting a safety-critical class
   (`ice`) or models disagreeing gives `second_review`. Confidence below `low` (0.50) gives
   `second_review`, below `high` (0.85) gives `full_review`, otherwise `light_review`. A missing signal
@@ -538,3 +546,128 @@ Threshold sweep over `high` (descriptive only, computed on test; `high` was set 
 labels and the official val/test class mix. The live numbers will come from reviewers' labels, not
 RSCD's, and only `make review-report` on a real log can say whether they hold. The bundle's
 `meta.json` says temperature 1.0 with no calibration split; T above was fitted for routing only.
+
+### A learned policy, compared with the threshold policy
+
+`LearnedPolicy` ([`learned.py`](src/roadcond/routing/learned.py)) plugs into the same
+`ReviewPolicy` interface. The hard rules come first: a safety class predicted by any model, or
+models that disagree, give `second_review`, and a missing signal gives at least `full_review`.
+Then a NumPy logistic regression on the calibrated confidence, the new `MarginProvider` (top-1
+minus top-2 calibrated probability) and, with two models, agreement predicts the risk that the
+primary model is wrong, and two cutoffs pick the mode (reasons such as `risk>=0.389`).
+
+- **Val only.** The weights, their standardisation, the temperature and every cutoff come from
+  the validation split; `fit_policy` refuses any other split, and a test checks that scrambling
+  the test split changes none of them. `l2` (1.0), the features and both cutoff rules were fixed
+  before the test split was routed, and nothing was changed after seeing the results.
+- **Versioned weights.** `learned_policy.json` holds the coefficients, means and stds, features,
+  cutoffs, val counts, the probabilities file's sha256 and `created_at`. The policy version is
+  `<policy_version>+<first 12 hex of the file's sha256>`, so every logged decision names its exact
+  weights; a missing file, or one fitted on other probabilities or settings, is refused.
+- **Fair comparison.** Both policies go through the same `ReviewRouter` with the same providers,
+  one decision log each. *Equal workload*: the learned cutoffs give the threshold policy's
+  per-mode counts on val, so the question is which images get the careful review. *Equal catch*:
+  a learned `cut_full` chosen on val to catch as large a share of val errors as the threshold
+  policy, so the question is how many light reviews each keeps. Differences are learned minus
+  threshold with a paired bootstrap 95% interval over test images (1,000 resamples, seed 0).
+- The default policy stays `threshold`, and the live API serves only that one
+  (`--bundle-dir` refuses any other).
+
+```bash
+make compare-policies       # random forest + LR -> artifacts/routing/policy_comparison.{json,md}
+make compare-policies-cnn   # ResNet-50 -> artifacts/routing_cnn/policy_comparison.{json,md}
+```
+
+#### Comparison: random forest + logistic regression, RSCD test set, seed 0
+
+From `artifacts/routing/policy_comparison.json` (weights `1.0.0+2c6f9f53645f`;
+features `calibrated_confidence`, `margin`, `agreement`). Equal workload
+(cut_full 0.1636, cut_second 0.3891; val counts matched exactly):
+
+| Measure (test) | threshold | learned | learned - threshold (95% CI) |
+|---|---:|---:|---:|
+| `light_review` share | 17.6% (8,693) | 17.6% (8,688) | -0.010 pts [-0.071, +0.042] (includes 0) |
+| `full_review` share | 27.1% (13,416) | 27.2% (13,471) |  |
+| `second_review` share | 55.3% (27,391) | 55.2% (27,341) |  |
+| Error rate in `light_review` | 10.9% (950 / 8,693) | 10.8% (942 / 8,688) | -0.086 pts [-0.222, +0.051] (includes 0) |
+| Error rate in `full_review` | 27.1% (3,632 / 13,416) | 27.2% (3,660 / 13,471) |  |
+| Error rate in `second_review` | 50.2% (13,752 / 27,391) | 50.2% (13,732 / 27,341) |  |
+| Error catch rate | 94.8% (17,384 / 18,334) | 94.9% (17,392 / 18,334) | +0.044 pts [-0.027, +0.115] (includes 0) |
+| True-`ice` images in `second_review` | 91.5% (2,151 / 2,350) | 91.8% (2,157 / 2,350) |  |
+| True-`ice` images left in `light_review` | 49 | 46 |  |
+| Routing time per 1,000 images | 81 ms | 96 ms | |
+
+Equal catch rate (cut_full 0.1641, cut_second 0.3891):
+
+| Measure (test) | threshold | learned (equal catch) | learned - threshold (95% CI) |
+|---|---:|---:|---:|
+| `light_review` share | 17.6% (8,693) | 17.6% (8,724) | +0.063 pts [+0.004, +0.119] |
+| `full_review` share | 27.1% (13,416) | 27.1% (13,435) |  |
+| `second_review` share | 55.3% (27,391) | 55.2% (27,341) |  |
+| Error rate in `light_review` | 10.9% (950 / 8,693) | 10.9% (950 / 8,724) | -0.039 pts [-0.168, +0.089] (includes 0) |
+| Error rate in `full_review` | 27.1% (3,632 / 13,416) | 27.2% (3,652 / 13,435) |  |
+| Error rate in `second_review` | 50.2% (13,752 / 27,391) | 50.2% (13,732 / 27,341) |  |
+| Error catch rate | 94.8% (17,384 / 18,334) | 94.8% (17,384 / 18,334) | +0.000 pts [-0.060, +0.066] (includes 0) |
+| True-`ice` images in `second_review` | 91.5% (2,151 / 2,350) | 91.8% (2,157 / 2,350) |  |
+| True-`ice` images left in `light_review` | 49 | 46 |  |
+
+#### Comparison: ResNet-50 (served ONNX bundle), RSCD test set, seed not recorded
+
+From `artifacts/routing_cnn/policy_comparison.json` (weights `1.0.0+0bfd4b2fa73d`;
+features `calibrated_confidence`, `margin`; one model, so no agreement).
+Equal workload (cut_full 0.1001, cut_second 0.5787; val counts matched exactly):
+
+| Measure (test) | threshold | learned | learned - threshold (95% CI) |
+|---|---:|---:|---:|
+| `light_review` share | 55.1% (27,282) | 55.2% (27,348) | +0.133 pts [+0.054, +0.208] |
+| `full_review` share | 34.4% (17,010) | 34.2% (16,925) |  |
+| `second_review` share | 10.5% (5,208) | 10.6% (5,227) |  |
+| Error rate in `light_review` | 3.6% (990 / 27,282) | 3.7% (1,022 / 27,348) | +0.108 pts [+0.058, +0.160] |
+| Error rate in `full_review` | 29.2% (4,973 / 17,010) | 29.1% (4,931 / 16,925) |  |
+| Error rate in `second_review` | 36.2% (1,884 / 5,208) | 36.2% (1,894 / 5,227) |  |
+| Error catch rate | 87.4% (6,857 / 7,847) | 87.0% (6,825 / 7,847) | -0.408 pts [-0.596, -0.220] |
+| True-`ice` images in `second_review` | 96.5% (2,268 / 2,350) | 96.6% (2,269 / 2,350) |  |
+| True-`ice` images left in `light_review` | 29 | 29 |  |
+| Routing time per 1,000 images | 71 ms | 84 ms | |
+
+Equal catch rate (cut_full 0.0998, cut_second 0.5787):
+
+| Measure (test) | threshold | learned (equal catch) | learned - threshold (95% CI) |
+|---|---:|---:|---:|
+| `light_review` share | 55.1% (27,282) | 55.2% (27,322) | +0.081 pts [+0.000, +0.156] (includes 0) |
+| `full_review` share | 34.4% (17,010) | 34.2% (16,951) |  |
+| `second_review` share | 10.5% (5,208) | 10.6% (5,227) |  |
+| Error rate in `light_review` | 3.6% (990 / 27,282) | 3.7% (1,019 / 27,322) | +0.101 pts [+0.053, +0.152] |
+| Error rate in `full_review` | 29.2% (4,973 / 17,010) | 29.1% (4,934 / 16,951) |  |
+| Error rate in `second_review` | 36.2% (1,884 / 5,208) | 36.2% (1,894 / 5,227) |  |
+| Error catch rate | 87.4% (6,857 / 7,847) | 87.0% (6,828 / 7,847) | -0.370 pts [-0.557, -0.200] |
+| True-`ice` images in `second_review` | 96.5% (2,268 / 2,350) | 96.6% (2,269 / 2,350) |  |
+| True-`ice` images left in `light_review` | 29 | 29 |  |
+
+**How to read this.** The learned policy is **not** better than the threshold rules.
+
+- **Random forest + LR: no measurable difference.** At equal workload every interval includes 0
+  (error catch rate +0.044 points, 95% CI -0.027 to +0.115). At equal catch rate the
+  learned policy keeps 31 more light reviews out of 49,500
+  (+0.063 points, 95% CI +0.004 to +0.119): above 0, but too small to matter.
+- **ResNet-50: slightly worse.** At equal workload the learned policy catches
+  32 fewer of the model's 7,847 mistakes
+  (-0.408 points, 95% CI -0.596 to -0.220), and its light reviews are wrong a little more
+  often (+0.108 points, 95% CI +0.058 to +0.160). Matching the catch rate on val
+  does not carry over: on test it still catches
+  29 fewer mistakes, and even on val it keeps slightly fewer light reviews
+  (56.31% against 56.39%).
+- A likely reason, not tested here: for a well-calibrated single model the top-class confidence
+  already ranks its mistakes about as well as these signals can, and the margin adds little.
+  With the baselines, the hard rules alone send 42.6% of test images to second review
+  (ResNet-50: 5.8%), so the risk model decides only for the rest.
+- Ice handling is the same or a little better (true ice left in light review: random forest
+  49 threshold, 46 learned; ResNet-50 29 and 29), because the ice rule
+  comes before the model in both. Routing takes 81 ms against 96 ms
+  (random forest) and 71 ms against 84 ms (ResNet-50) per 1,000 images,
+  including the decision log: one run each, a rough cost only.
+
+**Caveats.** One trained model per setup, so the intervals cover test-set sampling, not
+training variance. Val also fitted the temperature (and, for the random forest, chose its
+depth). Shares are matched on val, so the test shares differ by a few images. How much code
+each change needed is measured from git in [`docs/change_scenarios.md`](docs/change_scenarios.md).
