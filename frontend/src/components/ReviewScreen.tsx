@@ -157,8 +157,9 @@ export function ReviewScreen({ active, health }: Props) {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-x-10 gap-y-3 px-3">
         <h1 className="display m-0 text-[clamp(2rem,3.4vw,3rem)]">Review queue</h1>
         <p className="m-0 max-w-[52ch] text-[15px] text-muted">
-          Photos the model was not sure enough about, or read as ice, wait here for a person. Second
-          reviews need two reviewers who agree; you never see the other reviewer's answer.
+          Every photo the service reads waits here for a person, strictest first: second reviews,
+          then full, then light. A second review needs two reviewers who agree; you never see the
+          other reviewer's answer.
         </p>
       </div>
 
