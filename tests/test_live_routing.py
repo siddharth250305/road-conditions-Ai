@@ -489,3 +489,36 @@ def test_the_report_script_reads_the_log_and_routing_json(tmp_path, capsys):
     assert "too few finished light reviews" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="not found"):
         main(["--log", str(tmp_path / "missing.jsonl")])
+
+
+def test_the_offline_check_command_writes_routing_json_for_the_bundle(tmp_path, capsys):
+    import numpy as np
+    import yaml
+
+    from roadcond.routing.probs import SplitProbs, save_probs
+    from roadcond.routing.run import main
+
+    rng = np.random.default_rng(0)
+
+    def split(n):
+        labels = rng.integers(0, len(CLASSES), n)
+        logits = rng.normal(size=(n, len(CLASSES)))
+        logits[np.arange(n), labels] += 2.0
+        p = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
+        return SplitProbs(np.array([f"img-{i}" for i in range(n)]), labels, {"cnn": p})
+
+    probs_path = tmp_path / "cnn_probs.npz"
+    save_probs(probs_path, CLASSES, -1, {"val": split(300), "test": split(200)})
+    config = tmp_path / "routing.yaml"
+    config.write_text(yaml.safe_dump({"routing": routing_section()}))
+    bundle, meta = make_bundle(tmp_path)
+
+    args = ["--config", str(config), "--probs", str(probs_path), "--out-dir", str(tmp_path / "out")]
+    main([*args, "--bundle-dir", str(bundle)])
+    summary = json.loads((tmp_path / "out" / "summary.json").read_text())
+    spec = load_live_routing(bundle, meta)
+    assert spec["temperature"] == summary["calibration"]["temperature"]
+    assert spec["config_hash"] == summary["config_hash"]
+    assert spec["offline_check"]["n_images"] == 200
+    assert summary["label"] == "cnn, RSCD test set, seed not recorded"
+    assert "the API now routes live photos" in capsys.readouterr().out
