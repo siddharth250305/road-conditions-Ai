@@ -35,13 +35,14 @@ This document explains what has been built in the **Road Condition AI** reposito
    - [3.25 Docker Image and Continuous Integration](#325-docker-image-and-continuous-integration)
    - [3.26 Results Tables and the Study Write-Up (Req R1, R2)](#326-results-tables-and-the-study-write-up-req-r1-r2)
    - [3.27 Review Routing (light, full or second human review)](#327-review-routing-light-full-or-second-human-review)
+   - [3.28 Live Review Routing (API, reviewer queue, report)](#328-live-review-routing-api-reviewer-queue-report)
 4. [Step-by-Step Manual Verification Playbook](#4-step-by-step-manual-verification-playbook)
    - Phase 1: [Tests 1-6](#phase-1-data-pipeline-metrics-and-classical-baseline)
    - Phase 2: [Tests 7-13](#phase-2-deep-learning-classifier)
    - Phase 3: [Tests 14-20](#phase-3-cross-country-damage-detection)
    - Phase 4: [Tests 21-28](#phase-4-onnx-export-and-the-demo-api)
    - Phase 5: [Tests 29-35](#phase-5-frontend-docker-ci-and-documentation)
-   - Review routing: [Tests 36-38](#review-routing)
+   - Review routing: [Tests 36-41](#review-routing)
 5. [Reading the Results Against the PRD Hypotheses](#5-reading-the-results-against-the-prd-hypotheses)
 6. [Running the Real Experiments on Google Colab](#6-running-the-real-experiments-on-google-colab)
 7. [Known Limitations & Assumptions](#7-known-limitations--assumptions)
@@ -53,7 +54,7 @@ This document explains what has been built in the **Road Condition AI** reposito
 
 The repository contains the completed code for **Phase 0 (scaffolding)**, **Phase 1 (RSCD data pipeline and classical baseline)**, **Phase 2 (deep-learning surface classifier)**, **Phase 3 (cross-country YOLO damage detection and domain shift)** **Phase 4 (ONNX export and the demo API)** and **Phase 5 (survey-sheet web page, Docker image, CI workflow, README and write-up)**.
 
-**What is verified:** all 229 Python tests (222 pass, 7 skip without Ultralytics / Albumentations) and all 75 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
+**What is verified:** all 263 Python tests (256 pass, 7 skip without Ultralytics / Albumentations) and all 104 frontend tests pass on mock data (CPU only), `ruff` is clean on `src`, `tests`, `scripts` and `api`, and every command in section 4 runs. The web page was opened in a real browser (light, dark and phone width) against a running server, and the Docker image was built and run with and without a model. The exported ONNX model matches PyTorch to about 1e-6 (the requirement is 1e-4), and the API has been run as a real `uvicorn` server and exercised with `curl`. A real pretrained EfficientNet-B0 (weights downloaded from Hugging Face) has been run end to end through the classifier script, and a real COCO-pretrained YOLOv8n has been run through the whole detection chain (source detector, weather augmentation, few-shot, pseudo-labelling, report) on mock data.
 
 **What is not verified yet:** the GitHub Actions workflow has been written and its Python job simulated locally, but it has **not run on GitHub**; the Hugging Face Space has not been created; no model has been trained on the real RSCD or RDD2022 data, so there are **no real accuracy numbers**. The GPU and mixed-precision (AMP) code paths have not been run, because they need a CUDA machine. The assumed RSCD and RDD2022 folder layouts (section 7) still have to be checked on the real downloads. Mock scores mean nothing: the mock classes differ only by colour or by drawn shapes.
 
@@ -346,6 +347,17 @@ All scripts run from a repo clone without `pip install`.
 - **Config**: the `routing:` section of [`configs/default.yaml`](configs/default.yaml) holds every threshold, the models, the temperature grid, ECE bins and the sweep range.
 - **Real result** (random forest + logistic regression, RSCD test set, seed 0): see the README "Review routing" section. All numbers there come from `summary.json`.
 
+### 3.28 Live Review Routing (API, reviewer queue, report)
+- **Probabilities of the served model** ([`bundle_probs.py`](src/roadcond/bundle_probs.py), [`scripts/save_bundle_probs.py`](scripts/save_bundle_probs.py)): runs the exported ONNX bundle over RSCD val and test with the server's own decoding, resizing and temperature (`roadcond.serving`), batched, and saves `artifacts/results/cnn_probs.npz` in the routing format (model named after `meta.json`'s `model_name`). Batched output matches `Predictor.predict` to about 1e-6.
+- **Offline check, then switch on** ([`configs/routing_cnn.yaml`](configs/routing_cnn.yaml), `make route-cnn`): the baseline's rules and thresholds (set before any CNN result), one model so agreement is off. `route_images.py --bundle-dir serving` routes the test split as in 3.27 and then writes `serving/routing.json`: the routing config, its sha256, the temperature fitted on val and the check's key numbers, stamped with the model's `onnx_sha256`. It refuses a mock bundle, another model, two agreement models or different classes.
+- **Live routing** ([`live.py`](src/roadcond/routing/live.py)): `LiveRouting` loads `routing.json` only if it matches the served model (`model_name`, `onnx_sha256`, classes, config hash); otherwise routing stays off and `/health` says why. Each photo becomes a `Case` (image id = sha256 of the upload, never a file name) and goes through the same `ReviewRouter` and `ThresholdPolicy`, with the fitted temperature applied to the served probabilities. A failed log write gives an unrecorded `full_review` (`fallback:log_unavailable`), never a light one.
+- **Reviews**: light and full reviews finish after one reviewer; a second review finishes when two different reviewers agree, and a disagreement stays open (`disputed`) for a third. A reviewer cannot review the same photo twice or see another reviewer's label. Each review is an appended `confirmed:<label>` or `corrected:<label>` outcome line. On restart the queue is rebuilt from the log (`read_log`, which keeps every outcome); an unreadable log stops routing instead of losing history.
+- **Log safety**: `DecisionLog` writes each line whole under a lock, so the API's worker threads cannot tear lines (tested with 8 threads). Run one uvicorn worker per log file, as the Dockerfile does.
+- **API** ([`api/main.py`](api/main.py)): `/predict` gains an optional `review` field (`decision_id`, `mode`, `reasons`, `confidence`, `fallback`, `reviews_needed`, `recorded`); it is `null` when routing is off, and the rest of the answer is unchanged. `GET /review/queue`, `GET /review/{id}/image` and `POST /review/{id}` need `Authorization: Bearer <token>`, with tokens from `ROADCOND_REVIEWER_TOKENS="name:token,..."` (16+ characters, compared in constant time); the token decides the reviewer's name. Photos are kept for reviewers only with `ROADCOND_REVIEW_IMAGE_DIR`, named by the decision's uuid. The log goes to `ROADCOND_DECISION_LOG` (default `logs/decisions.jsonl`, gitignored; `/data/decisions.jsonl` in Docker).
+- **Frontend**: the reading panel shows "Human review" with the mode, the reasons in plain words and the review confidence. `#/review` (a Review link appears when `/health` reports routing on) takes a reviewer token (kept in `sessionStorage` for the tab), lists the open photos strictest first with six label buttons, and reloads after each review.
+- **Report** ([`monitor.py`](src/roadcond/routing/monitor.py), `make review-report`): reads the live log and `routing.json` and, for decisions made with the current config, gives per-mode open and finished reviews, the model's error rate per mode against the reviewers' agreed labels (with a 95% Wilson interval), the error catch rate, the ice share in second review and how often second reviewers disagree. It raises an alert when the lower bound of the live light-review error rate is above the offline check's rate and at least 30 light reviews are finished.
+- **Real result** (ResNet-50 served bundle, RSCD test set, seed not recorded): see the README "Live review routing" section. All numbers there come from `artifacts/routing_cnn/summary.json`.
+
 ---
 
 ## 4. Step-by-Step Manual Verification Playbook
@@ -359,7 +371,7 @@ pip install -e ".[dev,train,detect,export,serve]"   # Phase 1 needs ".[dev,class
 
 ### Phase 1: Data Pipeline, Metrics and Classical Baseline
 
-#### Test 1: Run the Complete 229-Test Suite
+#### Test 1: Run the Complete 263-Test Suite
 ```bash
 pytest -v
 ```
@@ -374,12 +386,13 @@ pytest -v
 | `tests/test_dl.py` | 28 | Phase 2 (see Tests 7-13) |
 | `tests/test_detection.py` | 39 | Phase 3 (see Tests 14-20) |
 | `tests/test_export.py` | 15 | Phase 4: ONNX export (see Tests 21-23, 27, 28) |
-| `tests/test_api.py` | 33 | Phase 4: the demo API (see Tests 21, 24-26, 28) |
+| `tests/test_api.py` | 33 | Phase 4: the demo API (see Tests 21, 24-26, 28); `/predict` now also carries `review` |
 | `tests/test_frontend_mount.py` | 7 | Phase 5: the built page is served after, never instead of, the API routes; path traversal; `/health` details (see Test 29) |
 | `tests/test_results_tables.py` | 6 | Phase 5: results tables and the README markers (see Test 35) |
 | `tests/test_routing.py` | 61 | review routing: providers, policy boundaries, fallbacks, label hiding, audit log, end to end (see Tests 36-38) |
+| `tests/test_live_routing.py` | 34 | live review routing: `routing.json` checks, review states, queue order, restart, concurrent writes, failed log writes, reviewer endpoints and tokens, the review report (see Tests 39-41) |
 
-**Success criteria:** `222 passed, 7 skipped` in roughly 45 seconds on a laptop CPU (the 7 need Ultralytics or Albumentations). Tests that need scikit-learn or torch are skipped automatically if those are not installed.
+**Success criteria:** `256 passed, 7 skipped` in roughly 45 seconds on a laptop CPU (the 7 need Ultralytics or Albumentations). Tests that need scikit-learn or torch are skipped automatically if those are not installed.
 
 #### Test 2: Verify the Configuration Single Source of Truth
 ```bash
@@ -1063,6 +1076,39 @@ To record a reviewer's verdict:
 python -c "import sys; sys.path.insert(0,'src'); from roadcond.routing import DecisionLog, read_decisions; p='artifacts/routing/decisions.jsonl'; d=read_decisions(p)[0]; DecisionLog(p, d['config_hash']).record_outcome(d['decision_id'], 'confirmed:'+d['predictions']['random_forest'], 'me')"
 ```
 `read_decisions` then shows it as that decision's `human_outcome`, and the earlier lines are unchanged.
+
+#### Test 39: Run the Live Routing Tests
+```bash
+pytest tests/test_live_routing.py -v
+```
+Expected: `34 passed`. The API tests use the random-weight test bundle with a `routing.json` added, so they need torch, onnx and onnxruntime; the rest need only NumPy.
+
+#### Test 40: Save the Served Model's Probabilities and Switch Routing On
+```bash
+python scripts/save_bundle_probs.py --root "<RSCD>"     # about 50 minutes on an 11-core laptop CPU
+make route-cnn PY=.venv/bin/python
+```
+Expected:
+- `artifacts/results/cnn_probs.npz` holds val (19,860) and test (49,500) rows for `resnet50`.
+- `artifacts/routing_cnn/summary.json` is written, and `serving/routing.json` with the same temperature and `config_hash`.
+- `python scripts/save_bundle_probs.py` on a mock bundle is refused.
+- Real run: the probabilities took about 50 minutes (22-24 images/s). Through the served ONNX path the val macro F1 is 0.867, matching the 0.8669 recorded in `meta.json` at training. `make route-cnn` took 13 seconds: T = 0.987, light / full / second review 55.1% / 34.4% / 10.5%, 0 fallbacks (full table in the README "Live review routing" section).
+
+#### Test 41: Route Live Photos and Review Them
+```bash
+mkdir -p /tmp/rc && ROADCOND_DECISION_LOG=/tmp/rc/decisions.jsonl ROADCOND_REVIEW_IMAGE_DIR=/tmp/rc/photos \
+  ROADCOND_REVIEWER_TOKENS="alex:alex-token-0123456789,sam:sam-token-0123456789" make demo
+curl -s -F file=@"<RSCD>/test_50k/<an ice photo>.jpg" localhost:8000/predict | python -c "import json,sys; print(json.load(sys.stdin)['review'])"
+curl -s -H "Authorization: Bearer alex-token-0123456789" localhost:8000/review/queue | python -m json.tool | head -30
+python scripts/review_report.py --log /tmp/rc/decisions.jsonl
+```
+Expected:
+- `/health` shows `"routing": {"enabled": true, ...}`; the ice photo gets `second_review` with `safety_class:ice`.
+- Without a token `/review/queue` answers 401; with tokens unset it answers 503.
+- In the browser, the reading panel shows "Human review", and `#/review` lists the photo; after Alex and Sam both pick Ice it leaves the queue, and the log holds two `confirmed:ice` outcome lines.
+- The report counts it as a finished second review; with fewer than 30 finished light reviews it says it is too early to judge.
+- Delete or rename `serving/routing.json`, restart: `/predict` answers `"review": null` and `/health` says why routing is off.
+- Real run on the ResNet-50 bundle: an RSCD ice photo got `second_review` (`safety_class:ice`, review confidence 87%), a dry photo at 48% `second_review` (`conf<0.5`), a wet photo at 69% `full_review`. Alex reviewed the ice photo in the browser, Sam confirmed it through the API and it was done; a repeat review answered 409; the report counted one finished second review and one corrected full review. The queue was checked at 1440 px and 390 px wide (no horizontal scroll).
 
 ---
 

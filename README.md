@@ -377,8 +377,8 @@ flowchart LR
   and a fallback flag. `DecisionLog.record_outcome` appends a separate outcome line and never edits
   old ones, and `read_decisions` joins them. Re-running moves the old log aside instead of deleting it.
 - **Other models later.** Any model can be routed once its probabilities are saved in the same
-  `.npz` format (`roadcond.routing.probs`). A calibrated CNN is not plugged in: it has no real-data
-  results yet.
+  `.npz` format (`roadcond.routing.probs`). The served CNN is routed this way, offline and live:
+  see "Live review routing" below.
 
 ```bash
 # 1. Save first-seed probabilities of the two classical baselines (val and test).
@@ -450,3 +450,91 @@ before the run, not chosen from this table):
   forest's depth.
 - Error rates depend on the official val/test class mix, while training was balanced.
 - `config_hash` covers the `routing:` section only, including its paths.
+
+### Live review routing (the served CNN)
+
+The API routes every uploaded photo with the same router and policy, once the exported model has
+passed the same offline check. Steps:
+
+```bash
+# 1. The served model's probabilities on RSCD val and test, through the server's own
+#    decoding, resizing and temperature (about 50 min for 69,360 images on an 11-core laptop CPU).
+python scripts/save_bundle_probs.py --root <RSCD>
+# 2. Offline check (configs/routing_cnn.yaml): fit T on val, route the test set, then write
+#    serving/routing.json, which switches routing on in the API for this exact model.
+make route-cnn
+# 3. Serve. Every /predict answer now carries a `review`; reviewers work the queue at #/review.
+ROADCOND_REVIEWER_TOKENS="alex:<16+ chars>,sam:<16+ chars>" ROADCOND_REVIEW_IMAGE_DIR=logs/photos make demo
+# 4. Later: compare the reviewers' labels with the offline check.
+make review-report
+```
+
+- **One model, same rules.** The API serves one model, so agreement is off; `ice`, `low` 0.50 and
+  `high` 0.85 are the baseline's settings, fixed before any CNN result was seen.
+- **Tied to the model.** `routing.json` carries the model's `onnx_sha256`, the routing config's
+  hash and the temperature fitted on val. If the served model changes, routing switches off (and
+  `/health` says why) until the check is rerun.
+- **Reviews.** Light and full reviews finish after one reviewer; a second review when two
+  reviewers agree. Reviewers sign in with a token from `ROADCOND_REVIEWER_TOKENS`, cannot review a
+  photo twice and never see another reviewer's label. Every decision and review is an appended
+  line in `ROADCOND_DECISION_LOG` (`logs/decisions.jsonl`; `/data/decisions.jsonl` in Docker).
+  Photos are kept for reviewers only when `ROADCOND_REVIEW_IMAGE_DIR` is set.
+- **Monitoring.** `make review-report` gives the model's error rate per mode against the reviewers'
+  labels, with a 95% interval, and flags when light reviews go wrong more often than the offline
+  check below said (once at least 30 are finished).
+
+#### Results: ResNet-50 (served ONNX bundle), RSCD test set, seed not recorded
+
+From `artifacts/routing_cnn/summary.json` (policy `threshold` 1.0.0, `high` 0.85, `low` 0.50,
+safety class `ice`; 49,500 test images). The bundle's `meta.json` does not record the
+training seed.
+
+| Mode | Images | Share | ResNet-50 error rate in mode |
+|---|---:|---:|---:|
+| `light_review` | 27,282 | 55.1% | 3.6% (990 / 27,282) |
+| `full_review` | 17,010 | 34.4% | 29.2% (4,973 / 17,010) |
+| `second_review` | 5,208 | 10.5% | 36.2% (1,884 / 5,208) |
+
+| Measure | Value |
+|---|---:|
+| ResNet-50 accuracy (test) | 84.1% |
+| Temperature (fitted on val) | 0.987 |
+| ECE on test, before / after scaling (15 bins) | 0.0063 / 0.0044 |
+| ECE on val, before / after scaling | 0.0048 / 0.0045 |
+| Error catch rate (wrong predictions sent to full or second review) | 87.4% (6,857 / 7,847) |
+| Share of all images sent to full or second review | 44.9% |
+| Lift over random routing of the same volume | 1.95 |
+| True-ice images sent to second review | 96.5% (2,268 / 2,350) |
+| True-ice images left in light review | 29 |
+| Precision of the ice rule (fired / truly ice) | 78.5% (2,878 fired) |
+| Fallbacks (provider or policy failures) | 0 |
+
+Threshold sweep over `high` (descriptive only, computed on test; `high` was set before the run):
+
+| `high` | light | full | second | error rate in light |
+|---:|---:|---:|---:|---:|
+| 0.60 | 80.8% | 8.7% | 10.5% | 10.3% |
+| 0.65 | 76.3% | 13.2% | 10.5% | 8.8% |
+| 0.70 | 71.7% | 17.8% | 10.5% | 7.6% |
+| 0.75 | 67.0% | 22.5% | 10.5% | 6.3% |
+| 0.80 | 61.6% | 27.9% | 10.5% | 5.0% |
+| 0.85 | 55.1% | 34.4% | 10.5% | 3.6% |
+| 0.90 | 47.5% | 42.0% | 10.5% | 2.5% |
+| 0.95 | 36.9% | 52.5% | 10.5% | 1.3% |
+
+**How to read this.**
+
+- The CNN is far better suited to routing than the classical baselines: over half the photos
+  (55.1%) need only a glance, and the model is wrong on
+  3.6% of them, against 10.9% for the random forest's light review.
+- 87.4% of the model's mistakes reach a careful review while only
+  44.9% of photos get one, a lift of 1.95 over random routing.
+- The served probabilities were already close to calibrated (test ECE 0.0063),
+  so T = 0.987 changes almost nothing; the page's confidence and the review
+  confidence therefore agree to within about a point.
+- The ice rule now catches 96.5% of true ice with 78.5% precision.
+
+**Caveats.** One model from one training run, no confidence intervals; error rates use RSCD's
+labels and the official val/test class mix. The live numbers will come from reviewers' labels, not
+RSCD's, and only `make review-report` on a real log can say whether they hold. The bundle's
+`meta.json` says temperature 1.0 with no calibration split; T above was fitted for routing only.
