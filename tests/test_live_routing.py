@@ -44,7 +44,7 @@ def summary(temperature=1.0):
 
 def make_bundle(tmp_path, model="cnn", mock=False, sha=SHA):
     bundle = tmp_path / "bundle"
-    bundle.mkdir(exist_ok=True)
+    bundle.mkdir(parents=True, exist_ok=True)
     meta = {
         "model_name": model,
         "mock": mock,
@@ -405,3 +405,86 @@ def test_reviewer_tokens_from_the_environment():
     tokens = parse_reviewer_tokens("alex:alex-token-0123456789, sam:short,:no-name-token-0123456")
     assert tokens == {"alex-token-0123456789": "alex"}
     assert parse_reviewer_tokens("") == {}
+
+
+# --- monitoring ------------------------------------------------------------------------------
+
+
+def test_wilson_interval():
+    from roadcond.routing.monitor import wilson_interval
+
+    assert wilson_interval(0, 0) is None
+    low, high = wilson_interval(5, 10)
+    assert low == pytest.approx(0.2366, abs=1e-4) and high == pytest.approx(0.7634, abs=1e-4)
+    assert wilson_interval(0, 50)[0] == 0.0
+
+
+def reviewed_log(tmp_path, light_wrong, light_right):
+    routing = live(tmp_path)
+    for i in range(light_wrong + light_right):
+        d = routing.route(f"light-{i}", probs("dry", 0.95))["decision_id"]
+        routing.review(d, "wet" if i < light_wrong else "dry", "alex")
+    icy = routing.route("icy", probs("ice", 0.99))["decision_id"]
+    routing.review(icy, "ice", "alex")
+    routing.review(icy, "water", "sam")  # disputed: still open
+    unsure = routing.route("unsure", probs("wet", 0.6))["decision_id"]
+    routing.review(unsure, "water", "alex")  # a model error the full review caught
+    routing.route("open", probs("dry", 0.95))
+    spec = {
+        **routing.spec,
+        "offline_check": {"error_rate_by_mode": {"light_review": {"error_rate": 0.1}}},
+    }
+    return routing, spec
+
+
+def test_the_report_compares_live_light_reviews_with_the_offline_check(tmp_path):
+    from roadcond.routing.monitor import review_report
+
+    routing, spec = reviewed_log(tmp_path, light_wrong=15, light_right=25)
+    report = review_report(*read_log(routing.log_path), spec)
+    light = report["reviews"]["light_review"]
+    assert light == {**light, "open": 1, "done": 40, "errors": 15, "error_rate": 15 / 40}
+    assert report["reviews"]["full_review"]["errors"] == 1
+    assert report["reviews"]["second_review"] == {
+        **report["reviews"]["second_review"],
+        "open": 1,
+        "done": 0,
+    }
+    assert report["error_catch_rate"] == {"caught": 1, "errors": 16, "rate": 1 / 16}
+    assert report["second_review_disagreement"] == {"pairs": 1, "disagreed": 1, "rate": 1.0}
+    check = report["light_review_check"]
+    assert check["alert"] is True and "refit" in check["verdict"]  # 37.5% vs 10% offline
+
+
+def test_the_report_does_not_alert_on_too_few_or_consistent_reviews(tmp_path):
+    from roadcond.routing.monitor import review_report
+
+    few, spec = reviewed_log(tmp_path / "few", light_wrong=5, light_right=5)
+    assert review_report(*read_log(few.log_path), spec)["light_review_check"]["alert"] is False
+    fine, spec = reviewed_log(tmp_path / "fine", light_wrong=3, light_right=37)
+    check = review_report(*read_log(fine.log_path), spec)["light_review_check"]
+    assert check["alert"] is False and "consistent" in check["verdict"]
+
+
+def test_the_report_only_counts_decisions_made_with_the_current_config(tmp_path):
+    from roadcond.routing.monitor import review_report
+
+    routing, spec = reviewed_log(tmp_path, light_wrong=1, light_right=1)
+    decisions, outcomes = read_log(routing.log_path)
+    old = {**decisions[0], "decision_id": "old", "config_hash": "previous"}
+    report = review_report([old, *decisions], outcomes | {"old": []}, spec)
+    assert report["config_hashes"] == {"previous": 1, spec["config_hash"]: len(decisions)}
+    assert report["decisions"] == len(decisions)
+
+
+def test_the_report_script_reads_the_log_and_routing_json(tmp_path, capsys):
+    from roadcond.routing.monitor import main
+
+    routing, spec = reviewed_log(tmp_path, light_wrong=0, light_right=2)
+    (tmp_path / "bundle" / ROUTING_FILE).write_text(json.dumps(spec))
+    out = tmp_path / "report.json"
+    main(["--log", str(routing.log_path), "--bundle", str(tmp_path / "bundle"), "--out", str(out)])
+    assert json.loads(out.read_text())["decisions"] == 5
+    assert "too few finished light reviews" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="not found"):
+        main(["--log", str(tmp_path / "missing.jsonl")])
