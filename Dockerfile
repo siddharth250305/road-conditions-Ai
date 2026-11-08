@@ -6,6 +6,11 @@
 #
 # The model bundle (serving/model.onnx, meta.json, study.json) is not in git. Either mount it
 # as above or put it in serving/ before building. Without it the page loads and says no model.
+#
+# Review routing is on when serving/routing.json exists (make route-cnn). Decisions are appended
+# to /data/decisions.jsonl: mount a volume there (or enable HF persistent storage) to keep them.
+# Reviewers: -e ROADCOND_REVIEWER_TOKENS="name:token,..."; keep photos for them with
+# -e ROADCOND_REVIEW_IMAGE_DIR=/data/photos (off by default: uploads are not stored).
 
 # --- stage 1: build the frontend ------------------------------------------------------------
 FROM node:22-alpine AS frontend
@@ -22,7 +27,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN useradd --create-home --uid 1000 user
+RUN useradd --create-home --uid 1000 user \
+    && mkdir -p /data && chown user /data   # review routing log (HF persistent storage mounts here)
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
@@ -35,6 +41,7 @@ COPY --from=frontend --chown=user /build/dist ./frontend/dist
 
 USER user
 ENV ROADCOND_BUNDLE_DIR=/app/serving \
+    ROADCOND_DECISION_LOG=/data/decisions.jsonl \
     ROADCOND_FRONTEND_DIR=/app/frontend/dist
 EXPOSE 7860
 

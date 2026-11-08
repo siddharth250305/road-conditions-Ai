@@ -8,7 +8,10 @@ services:
       - "7860:7860"
     volumes:
       - ./serving:/app/serving:ro
+      - ./logs:/data            # review routing: decisions.jsonl (and photos, if kept) survive restarts
     environment:
       ROADCOND_UNCERTAINTY_THRESHOLD: "${ROADCOND_UNCERTAINTY_THRESHOLD:-}"
       ROADCOND_MAX_UPLOAD_MB: "${ROADCOND_MAX_UPLOAD_MB:-10}"
+      ROADCOND_REVIEWER_TOKENS: "${ROADCOND_REVIEWER_TOKENS:-}"
+      ROADCOND_REVIEW_IMAGE_DIR: "${ROADCOND_REVIEW_IMAGE_DIR:-}"
     restart: unless-stopped
