@@ -1,11 +1,13 @@
 """Append-only JSONL audit log of routing decisions and the human outcomes recorded later.
 
 Lines are only ever appended. A decision line has human_outcome null; a reviewer's verdict is a
-separate {"event": "outcome", ...} line, and read_decisions joins the two.
+separate {"event": "outcome", ...} line, and read_decisions joins the two. One DecisionLog may be
+shared by the threads of a web server: each line is written whole, under a lock.
 """
 
 import hashlib
 import json
+import threading
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,10 +51,12 @@ class DecisionLog:
         self.path = Path(path)
         self.config_hash = config_hash
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
 
     def _append(self, record: dict[str, Any]) -> None:
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, allow_nan=False) + "\n")
+        line = json.dumps(record, allow_nan=False) + "\n"
+        with self._lock, self.path.open("a", encoding="utf-8") as f:
+            f.write(line)
 
     def write(self, decision: RoutedDecision) -> dict[str, Any]:
         record = {
@@ -89,8 +93,8 @@ class DecisionLog:
         return record
 
 
-def read_decisions(path: str | Path) -> list[dict[str, Any]]:
-    """Decisions in log order, each with human_outcome set to its latest outcome (or None).
+def read_log(path: str | Path) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """(decisions in log order, every outcome per decision_id in log order).
 
     Raises ValueError, naming the line, for a malformed line, a duplicate decision, or an
     outcome that names no decision in the log.
@@ -113,9 +117,23 @@ def read_decisions(path: str | Path) -> list[dict[str, Any]]:
                 raise ValueError(f"line {number}: duplicate decision {record['decision_id']}")
             else:
                 decisions[record["decision_id"]] = dict(record)
+    by_decision: dict[str, list[dict[str, Any]]] = {d: [] for d in decisions}
     for outcome in outcomes:
-        decision = decisions.get(outcome["decision_id"])
-        if decision is None:
+        if outcome["decision_id"] not in decisions:
             raise ValueError(f"Outcome for unknown decision {outcome['decision_id']}")
-        decision["human_outcome"] = {k: outcome[k] for k in ("outcome", "reviewer", "timestamp")}
-    return list(decisions.values())
+        by_decision[outcome["decision_id"]].append(
+            {k: outcome[k] for k in ("outcome", "reviewer", "timestamp")}
+        )
+    return list(decisions.values()), by_decision
+
+
+def read_decisions(path: str | Path) -> list[dict[str, Any]]:
+    """Decisions in log order, each with human_outcome set to its latest outcome (or None).
+
+    Raises ValueError as read_log does.
+    """
+    decisions, outcomes = read_log(path)
+    for decision in decisions:
+        history = outcomes[decision["decision_id"]]
+        decision["human_outcome"] = history[-1] if history else None
+    return decisions
