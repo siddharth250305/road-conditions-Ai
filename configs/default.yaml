@@ -126,6 +126,7 @@ routing:                        # review routing (roadcond.routing): how much hu
     high: 0.85                  # confidence below this -> full_review
     low: 0.50                   # confidence below this -> second_review
   safety_critical_classes: [ice]   # predicted by any model -> second_review
+  extra_providers: []           # more signals by name (run.PROVIDERS), e.g. [margin]
   probs_file: artifacts/results/baseline_probs.npz   # scripts/train_baseline.py --eval-test --save-probs
   out_dir: artifacts/routing    # decisions.jsonl (append-only audit log) and summary.json
   temperature_search: {t_min: 0.05, t_max: 20.0, steps: 2000}   # log-spaced NLL grid, fitted on val

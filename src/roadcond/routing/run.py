@@ -40,6 +40,7 @@ from roadcond.routing.providers import (
     AgreementProvider,
     CalibratedConfidenceProvider,
     ConfidenceProvider,
+    MarginProvider,
     fit_temperature,
     nll,
     scale_probs,
@@ -50,6 +51,10 @@ log = logging.getLogger(__name__)
 
 POLICIES: dict[str, Callable[[Mapping[str, Any]], ReviewPolicy]] = {
     "threshold": ThresholdPolicy.from_config,
+}
+# Optional signals, switched on by name in routing.extra_providers; each gets (routing, T).
+PROVIDERS: dict[str, Callable[[Mapping[str, Any], float], ConfidenceProvider]] = {
+    "margin": lambda routing, t: MarginProvider(routing["primary_model"], t),
 }
 MODEL_LABELS = {
     "random_forest": "random forest",
@@ -65,6 +70,10 @@ def build_providers(routing: Mapping[str, Any], temperature: float) -> list[Conf
     ]
     if len(routing["agreement_models"]) >= 2:
         providers.append(AgreementProvider(routing["agreement_models"]))
+    for name in routing.get("extra_providers", []):
+        if name not in PROVIDERS:
+            raise ValueError(f"Unknown provider {name!r}; known: {sorted(PROVIDERS)}")
+        providers.append(PROVIDERS[name](routing, temperature))
     return providers
 
 

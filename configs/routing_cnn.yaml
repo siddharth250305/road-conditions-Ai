@@ -14,6 +14,7 @@ routing:
     high: 0.85                  # confidence below this -> full_review
     low: 0.50                   # confidence below this -> second_review
   safety_critical_classes: [ice]
+  extra_providers: []           # more signals by name (run.PROVIDERS), e.g. [margin]
   probs_file: artifacts/results/cnn_probs.npz   # scripts/save_bundle_probs.py
   out_dir: artifacts/routing_cnn
   temperature_search: {t_min: 0.05, t_max: 20.0, steps: 2000}

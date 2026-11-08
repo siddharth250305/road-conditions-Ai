@@ -84,6 +84,27 @@ class CalibratedConfidenceProvider:
         return float(scale_probs(_probs_for(case, self.model), self.temperature).max())
 
 
+class MarginProvider:
+    """Gap between the top-1 and top-2 probabilities of one model after temperature scaling.
+
+    0 when the two leading classes tie, 1 when all the probability is on one class.
+    """
+
+    def __init__(self, model: str, temperature: float, name: str = "margin"):
+        if not np.isfinite(temperature) or temperature <= 0:
+            raise ValueError(f"temperature must be a positive number, got {temperature}")
+        self.model = model
+        self.temperature = float(temperature)
+        self.name = name
+
+    def score(self, case: CaseView) -> float:
+        p = _probs_for(case, self.model)
+        if len(p) < 2:
+            raise ProviderError(f"{self.model}: a margin needs at least two classes")
+        second, first = np.sort(scale_probs(p, self.temperature))[-2:]
+        return float(first - second)
+
+
 class AgreementProvider:
     """Share of the other listed models whose top class matches the first model's top class.
 

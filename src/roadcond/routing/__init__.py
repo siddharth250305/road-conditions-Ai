@@ -14,6 +14,7 @@ from roadcond.routing.providers import (
     AgreementProvider,
     CalibratedConfidenceProvider,
     ConfidenceProvider,
+    MarginProvider,
     ProviderError,
 )
 from roadcond.routing.router import ReviewRouter, RoutedDecision
@@ -26,6 +27,7 @@ __all__ = [
     "ConfidenceProvider",
     "Decision",
     "DecisionLog",
+    "MarginProvider",
     "ProviderError",
     "ReviewMode",
     "ReviewPolicy",
