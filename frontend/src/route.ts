@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 // Three screens addressed by the URL hash, so the back button and shared links work without a
-// router dependency: #/ (home), #/report, #/study.
-export type Route = "home" | "report" | "study";
+// router dependency: #/ (home), #/report, #/study, #/review (reviewers).
+export type Route = "home" | "report" | "study" | "review";
 
-const ROUTES: Record<string, Route> = { "": "home", "#": "home", "#/": "home", "#/report": "report", "#/study": "study" };
+const ROUTES: Record<string, Route> = { "": "home", "#": "home", "#/": "home", "#/report": "report", "#/study": "study", "#/review": "review" };
 
 // The screens run left to right like lanes; a route change slides the way you are travelling.
-const ORDER: Record<Route, number> = { home: 0, report: 1, study: 2 };
+const ORDER: Record<Route, number> = { home: 0, report: 1, study: 2, review: 3 };
 
 export function routeOf(hash: string): Route {
   return ROUTES[hash] ?? "home";

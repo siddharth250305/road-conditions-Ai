@@ -7,11 +7,12 @@ interface Props {
   limitsOpen: boolean;
   onLimits: () => void;
   onHowItWorks: () => void;
+  showReview?: boolean; // only when the server routes photos to review
 }
 
 // The site bar. Routes are text over a lane marking that glides to the current page; How it
 // works scrolls to its section and Model opens the limits and provenance panel.
-export function GlassNav({ route, limitsOpen, onLimits, onHowItWorks }: Props) {
+export function GlassNav({ route, limitsOpen, onLimits, onHowItWorks, showReview = false }: Props) {
   const link = (r: Route, name: string) => (
     <a href={hrefOf(r)} className="nav-link" aria-current={route === r ? "page" : undefined}>
       {name}
@@ -32,6 +33,7 @@ export function GlassNav({ route, limitsOpen, onLimits, onHowItWorks }: Props) {
           <span className="lane-marker" aria-hidden="true" />
         </button>
         {link("study", "Study")}
+        {showReview && link("review", "Review")}
         <button type="button" className="nav-link" aria-expanded={limitsOpen} aria-controls="limits" onClick={onLimits}>
           Model
           <span className="lane-marker" aria-hidden="true" />

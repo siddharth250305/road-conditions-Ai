@@ -19,6 +19,40 @@ export interface PredictResponse {
   temperature: number;
   uncertainty_threshold: number;
   model: { name: string; mock: boolean };
+  review?: Review | null; // null when review routing is off on the server
+}
+
+// Review routing (roadcond.routing.live): how much human review a photo gets.
+export type ReviewMode = "light_review" | "full_review" | "second_review";
+
+export interface Review {
+  decision_id: string | null; // null only when the server could not record the decision
+  mode: ReviewMode;
+  reasons: string[];
+  confidence: number | null; // the review rule's temperature-scaled confidence
+  fallback: boolean;
+  reviews_needed: number;
+  recorded: boolean;
+}
+
+export interface ReviewItem {
+  decision_id: string;
+  routed_at: string;
+  prediction: string | null;
+  mode: ReviewMode;
+  reasons: string[];
+  confidence: number | null;
+  status: "pending" | "disputed" | "done";
+  agreed_label: string | null;
+  reviews_needed: number;
+  reviewers: string[];
+  has_image: boolean;
+}
+
+export interface ReviewQueue {
+  reviewer: string;
+  counts: Record<ReviewMode, { open: number; done: number }>;
+  items: ReviewItem[];
 }
 
 export interface Health {
@@ -44,6 +78,14 @@ export interface Health {
     seed?: number | null;
   } | null;
   provenance?: { checkpoint_sha256?: string | null; onnx_sha256?: string | null } | null;
+  routing?: {
+    enabled: boolean;
+    detail?: string | null;
+    reviewing?: boolean;
+    stores_images?: boolean;
+    thresholds?: { high: number; low: number };
+    safety_critical_classes?: string[];
+  } | null;
 }
 
 export interface Summary {
