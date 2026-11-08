@@ -8,20 +8,37 @@ answer 503, and /study keeps working when a study.json is present.
 
 When a built frontend exists (frontend/dist, or $ROADCOND_FRONTEND_DIR) it is served at "/"
 after every API route, so the demo is one same-origin service.
+
+Review routing (roadcond.routing.live) is on when the bundle has a routing.json checked on its
+own model: every /predict answer then carries a review decision, appended to the decision log
+($ROADCOND_DECISION_LOG). Reviewers named in $ROADCOND_REVIEWER_TOKENS ("name:token,...") read
+the queue and record labels under /review; with $ROADCOND_REVIEW_IMAGE_DIR set, uploaded photos
+are kept there so a second reviewer can see them.
 """
 
+import hashlib
+import hmac
 import logging
 import os
+import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from pydantic import BaseModel
 
 from roadcond import __version__
+from roadcond.routing.live import (
+    LiveRouting,
+    LiveRoutingError,
+    ReviewConflictError,
+    UnknownDecisionError,
+)
 from roadcond.serving import (
     ImageTooLargeError,
     InvalidImageError,
@@ -35,11 +52,37 @@ log = logging.getLogger("roadcond.api")
 
 MULTIPART_OVERHEAD = 64 * 1024  # form boundaries and headers around the file bytes
 DEFAULT_FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+DEFAULT_DECISION_LOG = "logs/decisions.jsonl"
+MIN_TOKEN_LENGTH = 16
+
+
+def parse_reviewer_tokens(text: str) -> dict[str, str]:
+    """ "name:token,name:token" -> {token: name}. Short or malformed entries are skipped."""
+    tokens: dict[str, str] = {}
+    for entry in filter(None, (e.strip() for e in text.split(","))):
+        name, _, token = entry.partition(":")
+        if not name.strip() or len(token) < MIN_TOKEN_LENGTH:
+            log.error(
+                "Skipped a reviewer token entry: need name:token with %d+ characters",
+                MIN_TOKEN_LENGTH,
+            )
+            continue
+        tokens[token] = name.strip()
+    return tokens
 
 
 class ModelInfo(BaseModel):
     name: str
     mock: bool
+
+
+class ReviewInfo(BaseModel):
+    decision_id: str | None  # null only when the decision could not be logged
+    mode: str  # light_review | full_review | second_review
+    reasons: list[str]
+    fallback: bool
+    reviews_needed: int
+    recorded: bool
 
 
 class PredictResponse(BaseModel):
@@ -56,6 +99,30 @@ class PredictResponse(BaseModel):
     temperature: float
     uncertainty_threshold: float
     model: ModelInfo
+    review: ReviewInfo | None = None  # null when review routing is off
+
+
+class ReviewRequest(BaseModel):
+    label: str
+
+
+class ReviewState(BaseModel):
+    decision_id: str
+    routed_at: str
+    prediction: str | None
+    mode: str
+    reasons: list[str]
+    status: str  # pending | disputed | done
+    agreed_label: str | None
+    reviews_needed: int
+    reviewers: list[str]
+    has_image: bool = False
+
+
+class ReviewQueue(BaseModel):
+    reviewer: str
+    counts: dict[str, dict[str, int]]
+    items: list[ReviewState]
 
 
 class HealthResponse(BaseModel):
@@ -69,17 +136,25 @@ class HealthResponse(BaseModel):
     calibration: dict[str, Any] | None = None
     training: dict[str, Any] | None = None
     provenance: dict[str, Any] | None = None
+    routing: dict[str, Any] | None = None
 
 
 def create_app(
     bundle_dir: str | Path | None = None,
     settings: ServingSettings | None = None,
     frontend_dir: str | Path | None = None,
+    decision_log: str | Path | None = None,
+    reviewer_tokens: Mapping[str, str] | None = None,
+    review_image_dir: str | Path | None = None,
 ) -> FastAPI:
     """Build the app around a bundle folder (default: $ROADCOND_BUNDLE_DIR or ./serving).
 
     frontend_dir: a built frontend to serve at "/" (default: $ROADCOND_FRONTEND_DIR, else
     frontend/dist when it has been built).
+    decision_log: the routing audit log (default: $ROADCOND_DECISION_LOG, else
+    logs/decisions.jsonl). reviewer_tokens: {token: reviewer name} (default: parsed from
+    $ROADCOND_REVIEWER_TOKENS). review_image_dir: keep uploads for reviewers (default:
+    $ROADCOND_REVIEW_IMAGE_DIR; unset keeps none).
     """
     bundle = Path(bundle_dir or os.environ.get("ROADCOND_BUNDLE_DIR", "serving"))
     frontend = Path(frontend_dir or os.environ.get("ROADCOND_FRONTEND_DIR") or DEFAULT_FRONTEND_DIR)
@@ -97,6 +172,67 @@ def create_app(
         study = load_study(bundle)
     except ValueError as err:
         log.error("Study not loaded: %s", err)
+
+    routing: LiveRouting | None = None
+    routing_problem = problem or "No model is loaded"
+    if predictor is not None:
+        log_path = Path(
+            decision_log or os.environ.get("ROADCOND_DECISION_LOG", DEFAULT_DECISION_LOG)
+        )
+        try:
+            routing = LiveRouting(bundle, predictor.meta, log_path)
+            log.info("Review routing on; decisions go to %s", log_path)
+        except LiveRoutingError as err:
+            routing_problem = str(err)
+            log.warning("Review routing off: %s", err)
+    tokens = dict(
+        reviewer_tokens
+        if reviewer_tokens is not None
+        else parse_reviewer_tokens(os.environ.get("ROADCOND_REVIEWER_TOKENS", ""))
+    )
+    image_dir_value = review_image_dir or os.environ.get("ROADCOND_REVIEW_IMAGE_DIR")
+    image_dir = Path(image_dir_value) if image_dir_value else None
+    if image_dir is not None and routing is not None:
+        image_dir.mkdir(parents=True, exist_ok=True)
+
+    def routing_health() -> dict[str, Any]:
+        if routing is None:
+            return {"enabled": False, "detail": routing_problem}
+        return {
+            "enabled": True,
+            "reviewing": bool(tokens),
+            "stores_images": image_dir is not None,
+            **routing.info,
+        }
+
+    def image_path(decision_id: str) -> Path | None:
+        if image_dir is None:
+            return None
+        try:
+            return image_dir / str(uuid.UUID(decision_id))  # never a path from the request
+        except ValueError:
+            return None
+
+    def reviewer(authorization: Annotated[str | None, Header()] = None) -> str:
+        if routing is None:
+            raise HTTPException(503, "Review routing is not enabled on this deployment")
+        if not tokens:
+            raise HTTPException(503, "Reviewing is not enabled: no reviewer tokens are set")
+        scheme, _, token = (authorization or "").partition(" ")
+        name = None
+        if scheme.lower() == "bearer" and token:
+            for known, who in tokens.items():
+                if hmac.compare_digest(known.encode(), token.encode()):
+                    name = who
+        if name is None:
+            raise HTTPException(
+                401, "A valid reviewer token is needed", headers={"WWW-Authenticate": "Bearer"}
+            )
+        return name
+
+    def with_image(state: dict[str, Any]) -> dict[str, Any]:
+        path = image_path(state["decision_id"])
+        return {**state, "has_image": bool(path and path.is_file())}
 
     app = FastAPI(
         title="Road Condition AI",
@@ -125,7 +261,7 @@ def create_app(
                 ).model_dump(),
                 status_code=503,
             )
-        return HealthResponse(version=__version__, **predictor.health())
+        return HealthResponse(version=__version__, routing=routing_health(), **predictor.health())
 
     @app.post("/predict", response_model=PredictResponse)
     def predict(
@@ -140,11 +276,65 @@ def create_app(
             limit = f"{mb:g} MB" if mb >= 1 else f"{settings.max_upload_bytes // 1024} KB"
             raise HTTPException(413, f"The upload is larger than {limit}")
         try:
-            return predictor.predict(data, heatmap=heatmap)
+            result = predictor.predict(data, heatmap=heatmap)
         except ImageTooLargeError as err:
             raise HTTPException(413, str(err)) from None
         except InvalidImageError as err:
             raise HTTPException(400, str(err)) from None
+        result["review"] = None
+        if routing is not None:
+            review = routing.route(hashlib.sha256(data).hexdigest(), result["probabilities"])
+            path = image_path(review["decision_id"]) if review["decision_id"] else None
+            if path is not None:
+                try:
+                    path.write_bytes(data)
+                except OSError as err:  # the decision stands; only the reviewer's copy is lost
+                    log.error("Could not keep the photo for review: %s", err)
+            result["review"] = review
+        return result
+
+    @app.get("/review/queue", response_model=ReviewQueue)
+    def review_queue(
+        name: Annotated[str, Depends(reviewer)],
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    ):
+        """Open decisions this reviewer has not reviewed yet, strictest mode first."""
+        assert routing is not None  # reviewer() refuses otherwise
+        items = [with_image(s) for s in routing.queue(name, limit)]
+        return {"reviewer": name, "counts": routing.counts(), "items": items}
+
+    @app.get("/review/{decision_id}/image")
+    def review_image(decision_id: str, _: Annotated[str, Depends(reviewer)]):
+        path = image_path(decision_id)
+        if path is None or not path.is_file():
+            raise HTTPException(404, "No photo was kept for this decision")
+        try:
+            with Image.open(path) as image:
+                media_type = Image.MIME.get(image.format or "", "application/octet-stream")
+        except OSError:
+            raise HTTPException(404, "No photo was kept for this decision") from None
+        return FileResponse(
+            path,
+            media_type=media_type,
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    @app.post("/review/{decision_id}", response_model=ReviewState)
+    def record_review(
+        decision_id: str,
+        body: Annotated[ReviewRequest, Body()],
+        name: Annotated[str, Depends(reviewer)],
+    ):
+        """Record this reviewer's label. A second review is done when two reviewers agree."""
+        assert routing is not None
+        try:
+            return with_image(routing.review(decision_id, body.label, name))
+        except UnknownDecisionError:
+            raise HTTPException(404, "No such decision") from None
+        except ReviewConflictError as err:
+            raise HTTPException(409, str(err)) from None
+        except ValueError as err:
+            raise HTTPException(422, str(err)) from None
 
     @app.get("/study")
     def get_study():
