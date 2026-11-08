@@ -23,6 +23,15 @@ from roadcond.routing import (
     ThresholdPolicy,
     read_decisions,
 )
+from roadcond.routing.compare import (
+    COMPARISON_JSON,
+    COMPARISON_MD,
+    compare,
+    compare_main,
+    fit,
+    fit_main,
+    paired_bootstrap,
+)
 from roadcond.routing.learned import (
     LearnedPolicy,
     LearnedPolicyError,
@@ -36,6 +45,7 @@ from roadcond.routing.learned import (
     sigmoid,
     write_weights,
 )
+from roadcond.routing.probs import SplitProbs, load_probs, save_probs
 from roadcond.routing.providers import scale_probs
 from roadcond.routing.run import POLICIES, build_policy, build_providers, route_all
 from roadcond.routing.run import main as route_main
@@ -475,3 +485,152 @@ def test_the_live_api_is_offered_the_threshold_policy_only(tmp_path):
 
 def test_the_learned_policy_satisfies_the_review_policy_protocol():
     assert isinstance(learned(), ReviewPolicy) and learned().name == "learned"
+
+
+# --- fit and compare end to end -------------------------------------------------------------
+
+
+def mock_setup(tmp_path, n=300, seed=0):
+    probs_path = tmp_path / "probs.npz"
+    probs = mock_probs_file(probs_path, n=n, seed=seed)
+    routing = {
+        **ROUTING,
+        "learned_weights": str(tmp_path / "learned_policy.json"),
+        "probs_file": str(probs_path),
+    }
+    return routing, probs, probs_path
+
+
+def test_fit_and_compare_on_mock_data_write_every_field(tmp_path):
+    routing, probs, probs_path = mock_setup(tmp_path)
+    weights = fit(routing, probs, probs_path)
+    assert weights["fitted_on"] == "val" and weights["val"]["n_images"] == 300
+    assert weights["features"] == ["calibrated_confidence", "margin", "agreement"]
+    out = tmp_path / "out"
+    summary = compare(routing, probs, probs_path, out, resamples=200)
+    assert json.loads((out / COMPARISON_JSON).read_text()) == summary
+    md = (out / COMPARISON_MD).read_text()
+    assert "## Equal workload" in md and "## Equal catch rate" in md and "95% CI" in md
+
+    wl, ec = summary["equal_workload"], summary["equal_catch"]
+    for name in ("threshold", "learned"):
+        result = wl["policies"][name]
+        assert sum(v["count"] for v in result["modes"].values()) == 300
+        for key in (
+            "error_rate_by_mode",
+            "error_catch_rate",
+            "safety_classes",
+            "fallbacks",
+            "routing_ms_per_1000_images",
+            "config_hash",
+            "decision_log",
+        ):
+            assert key in result
+        assert {"share", "left_in_light_review"} <= set(result["safety_classes"]["ice"])
+        decisions = read_decisions(result["decision_log"])
+        assert len(decisions) == 300
+        assert {d["policy"]["version"] for d in decisions} == {result["policy"]["version"]}
+    assert wl["policies"]["learned"]["policy"]["version"].endswith(
+        summary["weights"]["sha256"][:12]
+    )
+    for view_ in (wl, ec):
+        boot = view_["paired_bootstrap"]
+        assert boot["resamples"] == 200 and boot["seed"] == 0
+        for stat in ("error_catch_rate", "light_review_error_rate", "light_review_share"):
+            ci = boot[stat]["ci95"]
+            assert ci[0] <= ci[1] and isinstance(boot[stat]["includes_zero"], bool)
+        assert len(view_["statements"]) == 2
+    assert ec["val_learned_catch_rate"] >= ec["val_target_catch_rate"]
+    assert ec["cutoffs"]["cut_full"] <= ec["cutoffs"]["cut_second"]
+    assert ec["policy_version"].endswith("+equal_catch")
+
+    # The threshold policy routes exactly as `make route` does: margin is only logged.
+    plain = route_all(routing, probs, tmp_path / "plain")
+    assert wl["policies"]["threshold"]["modes"] == plain["modes"]
+
+    with pytest.raises(FileExistsError):
+        compare(routing, probs, probs_path, out, resamples=10)
+    compare(routing, probs, probs_path, out, archive_existing=True, resamples=10)
+    assert len(list((out / "comparison_logs").glob("decisions_*-*.jsonl"))) == 2
+
+
+def test_test_data_never_shapes_the_weights_or_any_cutoff(tmp_path):
+    routing, probs, probs_path = mock_setup(tmp_path)
+    rng = np.random.default_rng(99)
+    test = probs.splits["test"]
+    scrambled = SplitProbs(
+        image_ids=test.image_ids,
+        labels=rng.permutation(test.labels),
+        probs={m: scale_probs(rng.uniform(size=p.shape), 1.0) for m, p in test.probs.items()},
+    )
+    other_path = tmp_path / "other" / "probs.npz"
+    save_probs(
+        other_path, probs.classes, probs.seed, {"val": probs.splits["val"], "test": scrambled}
+    )
+    other = load_probs(other_path)
+    other_routing = {
+        **routing,
+        "probs_file": str(other_path),
+        "learned_weights": str(tmp_path / "other" / "learned_policy.json"),
+    }
+
+    a, b = fit(routing, probs, probs_path), fit(other_routing, other, other_path)
+    differ = {"created_at", "probs_file", "probs_sha256"}
+    assert {k: v for k, v in a.items() if k not in differ} == {
+        k: v for k, v in b.items() if k not in differ
+    }
+    sa = compare(routing, probs, probs_path, tmp_path / "a", resamples=10)
+    sb = compare(other_routing, other, other_path, tmp_path / "b", resamples=10)
+    for view_ in ("equal_workload", "equal_catch"):
+        assert sa[view_]["cutoffs"] == sb[view_]["cutoffs"]
+    assert sa["equal_workload"]["policies"] != sb["equal_workload"]["policies"]  # test differs
+
+
+def test_a_stale_weights_file_stops_the_comparison(tmp_path):
+    routing, probs, probs_path = mock_setup(tmp_path)
+    with pytest.raises(LearnedPolicyError, match="not found"):
+        compare(routing, probs, probs_path, tmp_path / "out")
+    fit(routing, probs, probs_path)
+    with pytest.raises(LearnedPolicyError, match="other routing settings"):
+        compare({**routing, "l2": 5.0}, probs, probs_path, tmp_path / "out")
+
+
+def test_fit_and_compare_command_lines(tmp_path, capsys):
+    mock_probs_file(tmp_path / "probs.npz", n=200)
+    weights = tmp_path / "w.json"
+    common = ["--probs", str(tmp_path / "probs.npz"), "--weights", str(weights)]
+    fit_main(common)
+    assert json.loads(weights.read_text())["fitted_on"] == "val"
+    compare_main([*common, "--out-dir", str(tmp_path / "out"), "--resamples", "50"])
+    out = capsys.readouterr().out
+    assert "Saved" in out and "| Error catch rate |" in out
+    assert (tmp_path / "out" / COMPARISON_JSON).is_file()
+    with pytest.raises(SystemExit, match="not found"):
+        fit_main(["--probs", str(tmp_path / "missing.npz")])
+
+
+# --- paired bootstrap -----------------------------------------------------------------------
+
+
+def test_bootstrap_of_identical_policies_is_exactly_zero_and_deterministic():
+    rng = np.random.default_rng(0)
+    modes = rng.choice(["light_review", "full_review", "second_review"], 500)
+    wrong = rng.uniform(size=500) < 0.2
+    result = paired_bootstrap(modes, modes, wrong, resamples=100, seed=3)
+    for stat in result.values():
+        assert stat["estimate"] == 0 and stat["ci95"] == [0.0, 0.0] and stat["includes_zero"]
+    other = rng.choice(["light_review", "full_review"], 500)
+    assert paired_bootstrap(modes, other, wrong, resamples=100, seed=3) == paired_bootstrap(
+        modes, other, wrong, resamples=100, seed=3
+    )
+
+
+def test_bootstrap_separates_a_clearly_better_policy():
+    rng = np.random.default_rng(1)
+    wrong = rng.uniform(size=2000) < 0.2
+    random_modes = np.where(rng.uniform(size=2000) < 0.5, "light_review", "full_review")
+    oracle = np.where(wrong, "full_review", "light_review")  # sends exactly the errors
+    result = paired_bootstrap(random_modes, oracle, wrong, resamples=200)
+    catch = result["error_catch_rate"]
+    assert catch["estimate"] > 0.4 and not catch["includes_zero"] and catch["ci95"][0] > 0
+    assert result["light_review_error_rate"]["ci95"][1] < 0

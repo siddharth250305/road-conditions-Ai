@@ -2,7 +2,7 @@
 PY ?= python3
 PORT ?= 8000
 
-.PHONY: setup test lint frontend demo demo-mock docker route route-cnn review-report
+.PHONY: setup test lint frontend demo demo-mock docker route route-cnn review-report compare-policies compare-policies-cnn
 
 setup:  ## Python and frontend dependencies
 	$(PY) -m pip install -e ".[dev,export,serve]"
@@ -37,3 +37,11 @@ route-cnn:  ## Offline routing check of the served CNN; writes serving/routing.j
 
 review-report:  ## Live review routing from the API's decision log, against the offline check
 	$(PY) scripts/review_report.py
+
+compare-policies:  ## Fit the learned review policy on val, compare it with the threshold policy on test
+	$(PY) scripts/fit_learned_policy.py
+	$(PY) scripts/compare_policies.py --archive-existing
+
+compare-policies-cnn:  ## The same comparison on the served CNN's probabilities
+	$(PY) scripts/fit_learned_policy.py --config configs/routing_cnn.yaml
+	$(PY) scripts/compare_policies.py --config configs/routing_cnn.yaml --archive-existing
