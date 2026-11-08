@@ -33,6 +33,7 @@ from roadcond.routing.evaluate import (
     mode_counts,
     mode_shares,
 )
+from roadcond.routing.learned import LearnedPolicy
 from roadcond.routing.log import DecisionLog, config_hash
 from roadcond.routing.policy import ReviewPolicy, ThresholdPolicy
 from roadcond.routing.probs import ProbsFile, load_probs
@@ -51,6 +52,7 @@ log = logging.getLogger(__name__)
 
 POLICIES: dict[str, Callable[[Mapping[str, Any]], ReviewPolicy]] = {
     "threshold": ThresholdPolicy.from_config,
+    "learned": LearnedPolicy.from_config,  # needs routing.learned_weights (fit_learned_policy.py)
 }
 # Optional signals, switched on by name in routing.extra_providers; each gets (routing, T).
 PROVIDERS: dict[str, Callable[[Mapping[str, Any], float], ConfidenceProvider]] = {
@@ -255,6 +257,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     routing = load_config(args.config)["routing"]
+    if args.bundle_dir and routing["policy"] != "threshold":
+        # The API builds only the confidence provider, so it serves the threshold policy only.
+        raise SystemExit("--bundle-dir needs policy: threshold; the live API serves no other")
     cwd = Path.cwd()
 
     def pick(arg: str | None, default: str) -> Path:

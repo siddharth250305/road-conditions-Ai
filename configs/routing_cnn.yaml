@@ -15,6 +15,8 @@ routing:
     low: 0.50                   # confidence below this -> second_review
   safety_critical_classes: [ice]
   extra_providers: []           # more signals by name (run.PROVIDERS), e.g. [margin]
+  learned_weights: artifacts/routing_cnn/learned_policy.json   # policy: learned (scripts/fit_learned_policy.py)
+  l2: 1.0                       # L2 penalty of the learned policy's logistic regression
   probs_file: artifacts/results/cnn_probs.npz   # scripts/save_bundle_probs.py
   out_dir: artifacts/routing_cnn
   temperature_search: {t_min: 0.05, t_max: 20.0, steps: 2000}
