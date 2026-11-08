@@ -80,6 +80,7 @@ class ReviewInfo(BaseModel):
     decision_id: str | None  # null only when the decision could not be logged
     mode: str  # light_review | full_review | second_review
     reasons: list[str]
+    confidence: float | None  # the review rule's temperature-scaled confidence
     fallback: bool
     reviews_needed: int
     recorded: bool
@@ -112,6 +113,7 @@ class ReviewState(BaseModel):
     prediction: str | None
     mode: str
     reasons: list[str]
+    confidence: float | None
     status: str  # pending | disputed | done
     agreed_label: str | None
     reviews_needed: int

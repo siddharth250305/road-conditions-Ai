@@ -154,6 +154,7 @@ def test_each_photo_gets_a_logged_decision(tmp_path):
         "second_review",
     ]
     assert confident["recorded"] and confident["reviews_needed"] == 1
+    assert confident["confidence"] == pytest.approx(0.95)  # T = 1 leaves it as served
     assert icy["reviews_needed"] == 2 and "safety_class:ice" in icy["reasons"]
     decisions, outcomes = read_log(routing.log_path)
     assert [d["image_id"] for d in decisions] == ["sha-1", "sha-2", "sha-3"]

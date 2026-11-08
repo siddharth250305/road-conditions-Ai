@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 ROUTING_FILE = "routing.json"
 LIVE_FORMAT_VERSION = 1
 LOG_UNAVAILABLE_REASON = "fallback:log_unavailable"
+CONFIDENCE_SIGNAL = "calibrated_confidence"  # CalibratedConfidenceProvider's default name
 REVIEWS_NEEDED = {ReviewMode.LIGHT: 1, ReviewMode.FULL: 1, ReviewMode.SECOND: 2}
 OFFLINE_KEYS = (
     "label",
@@ -166,6 +167,7 @@ class LiveRouting:
                     "prediction": d["predictions"].get(self.model),
                     "mode": d["mode"],
                     "reasons": d["reasons"],
+                    "confidence": d["signals"].get(CONFIDENCE_SIGNAL),
                     "reviews": [
                         {"reviewer": o["reviewer"], "label": outcome_label(o["outcome"])}
                         for o in outcomes[d["decision_id"]]
@@ -196,6 +198,7 @@ class LiveRouting:
                     "decision_id": None,
                     "mode": str(ReviewMode.FULL),
                     "reasons": [LOG_UNAVAILABLE_REASON],
+                    "confidence": None,
                     "fallback": True,
                     "reviews_needed": REVIEWS_NEEDED[ReviewMode.FULL],
                     "recorded": False,
@@ -206,6 +209,7 @@ class LiveRouting:
                 "prediction": routed.predictions.get(self.model),
                 "mode": str(routed.mode),
                 "reasons": list(routed.reasons),
+                "confidence": routed.signals.get(CONFIDENCE_SIGNAL),
                 "reviews": [],
             }
             self._decisions[routed.decision_id] = entry
@@ -213,6 +217,7 @@ class LiveRouting:
             "decision_id": routed.decision_id,
             "mode": entry["mode"],
             "reasons": entry["reasons"],
+            "confidence": entry["confidence"],
             "fallback": routed.fallback,
             "reviews_needed": REVIEWS_NEEDED[routed.mode],
             "recorded": True,
@@ -226,6 +231,7 @@ class LiveRouting:
             "prediction": entry["prediction"],
             "mode": entry["mode"],
             "reasons": list(entry["reasons"]),
+            "confidence": entry["confidence"],
             "status": status,
             "agreed_label": label,
             "reviews_needed": REVIEWS_NEEDED[ReviewMode(entry["mode"])],
