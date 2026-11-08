@@ -543,6 +543,7 @@ def test_fit_and_compare_on_mock_data_write_every_field(tmp_path):
     assert ec["val_learned_catch_rate"] >= ec["val_target_catch_rate"]
     assert ec["cutoffs"]["cut_full"] <= ec["cutoffs"]["cut_second"]
     assert ec["policy_version"].endswith("+equal_catch")
+    assert set(summary["hard_rules_second_review_share"]) == {"val", "test"}
 
     # The threshold policy routes exactly as `make route` does: margin is only logged.
     plain = route_all(routing, probs, tmp_path / "plain")

@@ -306,6 +306,7 @@ def compare(
 
     # Equal catch: cut_full chosen on val so the learned policy catches as many val errors.
     val = split_features(routing, probs, FIT_SPLIT, temperature)
+    test_floor = split_features(routing, probs, "test", temperature).floor  # describes only
     val_risk = learned.model.risk_matrix(val.X)
     target = error_catch_rate(val.threshold_modes, val.wrong)["rate"]
     cut_full = equal_catch_cut_full(val_risk, val.floor, val.wrong, target)
@@ -322,6 +323,12 @@ def compare(
         "probs_sha256": sha256_file(probs_path),
         "n_test_images": len(cases),
         "n_val_images": len(val.X),
+        # Share the hard rules alone (safety class, disagreement) send to second review; the
+        # risk model decides only for the rest.
+        "hard_rules_second_review_share": {
+            FIT_SPLIT: float(np.mean(val.floor == ReviewMode.SECOND.rank)),
+            "test": float(np.mean(test_floor == ReviewMode.SECOND.rank)),
+        },
         "temperature": temperature,
         "providers": [p.name for p in build_providers(shared, temperature)],
         "weights": {
