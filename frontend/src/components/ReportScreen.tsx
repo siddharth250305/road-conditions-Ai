@@ -4,6 +4,7 @@ import type { Health } from "../types";
 import { bytes } from "../format";
 import { LIMITS_LINE } from "../limits";
 import { FrictionRuler } from "./FrictionRuler";
+import { ReviewNote } from "./ReviewNote";
 import { SampleStrip } from "./SampleStrip";
 import { SpecimenFrame } from "./SpecimenFrame";
 import { liveMessage, VerdictPanel } from "./VerdictPanel";
@@ -39,6 +40,7 @@ export function ReportScreen({ prediction, health, reachable, online }: Props) {
   const hasHeatmap =
     (state.status === "result" || state.status === "unsure") && state.result.heatmap_base64 != null;
   const noModel = health?.status === "unavailable";
+  const review = state.status === "result" || state.status === "unsure" ? state.result.review : null;
 
   return (
     <>
@@ -112,6 +114,7 @@ export function ReportScreen({ prediction, health, reachable, online }: Props) {
 
         <section aria-label="Reading" className="rounded-[var(--r-panel)] border border-a10/10 bg-a2/80 p-5 sm:p-7 lg:self-start">
           <VerdictPanel state={state} onRetry={retry} />
+          {review && <ReviewNote review={review} />}
           <h2 className="heading mt-8 mb-3 text-muted">Friction ruler, dry to ice</h2>
           <FrictionRuler state={state} />
           <p className="mt-6 mb-0 border-t border-a10/10 pt-4 text-[13px] leading-snug text-muted">

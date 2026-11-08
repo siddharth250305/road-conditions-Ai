@@ -3,6 +3,7 @@ import { GlassNav } from "./components/GlassNav";
 import { HomeScreen, scrollToHowItWorks } from "./components/HomeScreen";
 import { LimitsFooter } from "./components/LimitsFooter";
 import { ReportScreen } from "./components/ReportScreen";
+import { ReviewScreen } from "./components/ReviewScreen";
 import { StudyScreen } from "./components/StudyScreen";
 import { useHealth, useOnline, usePrediction } from "./hooks";
 import { isMock, MOCK_BANNER } from "./limits";
@@ -59,7 +60,13 @@ export default function App() {
             {MOCK_BANNER}
           </p>
         )}
-        <GlassNav route={route} limitsOpen={limitsOpen} onLimits={toggleLimits} onHowItWorks={howItWorks} />
+        <GlassNav
+          route={route}
+          limitsOpen={limitsOpen}
+          onLimits={toggleLimits}
+          onHowItWorks={howItWorks}
+          showReview={health?.routing?.enabled === true || route === "review"}
+        />
       </header>
 
       <main id="main" tabIndex={-1} className="w-full flex-1 outline-none">
@@ -69,6 +76,9 @@ export default function App() {
         </div>
         <div hidden={route !== "study"} className="mx-auto w-full max-w-[1400px] px-4 pt-8 pb-14 sm:px-6 lg:px-10">
           <StudyScreen active={route === "study"} />
+        </div>
+        <div hidden={route !== "review"} className="mx-auto w-full max-w-[1400px] px-4 pt-8 pb-14 sm:px-6 lg:px-10">
+          <ReviewScreen active={route === "review"} health={health} />
         </div>
       </main>
 

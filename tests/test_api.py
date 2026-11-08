@@ -31,7 +31,7 @@ from roadcond.serving import (  # noqa: E402
 PREDICT_KEYS = {
     "prediction", "confidence", "is_uncertain", "display_label", "top2", "probabilities",
     "heatmap_base64", "heatmap_media_type", "heatmap_class", "limits_note", "temperature",
-    "uncertainty_threshold", "model",
+    "uncertainty_threshold", "model", "review",
 }  # fmt: skip
 
 
@@ -76,6 +76,7 @@ def test_predict_returns_the_documented_answer(client):
         "mock": True,
     }
     assert body["heatmap_media_type"] == "image/png" and body["heatmap_class"] == "dry"
+    assert body["review"] is None  # no routing.json in this bundle: review routing is off
 
 
 def test_confidence_is_the_temperature_scaled_probability(client, bundle_factory):
@@ -269,7 +270,10 @@ def test_study_is_a_404_not_invented_data_when_absent(client):
 
 def test_openapi_lists_the_endpoints(client):
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths) == {"/predict", "/study", "/health"}
+    assert set(paths) == {
+        "/predict", "/study", "/health",
+        "/review/queue", "/review/{decision_id}", "/review/{decision_id}/image",
+    }  # fmt: skip
     assert "post" in paths["/predict"] and "get" in paths["/study"] and "get" in paths["/health"]
 
 

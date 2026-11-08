@@ -68,3 +68,6 @@ serving/*
 IMG_7651.JPG
 RoadCondition AI Hero Landing Page.png
 frontend/.vitest/
+
+# Live review routing: the API decision log and kept review photos (ROADCOND_DECISION_LOG)
+logs/

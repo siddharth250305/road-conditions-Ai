@@ -117,6 +117,24 @@ serving:                        # PRD W1-W3: ONNX bundle and the demo API
   # ROADCOND_MAX_UPLOAD_MB (10), ROADCOND_MAX_PIXELS (50000000), ROADCOND_HEATMAP_ALPHA (0.45),
   # ROADCOND_CORS_ORIGINS (comma-separated, default none).
 
+routing:                        # review routing (roadcond.routing): how much human review each image gets
+  policy: threshold             # key in roadcond.routing.run.POLICIES
+  policy_version: "1.0.0"       # bump when the rules or thresholds change; logged with every decision
+  primary_model: random_forest  # its calibrated top-class probability is the confidence signal
+  agreement_models: [random_forest, logreg]   # first is the reference; fewer than 2 disables agreement
+  thresholds:
+    high: 0.85                  # confidence below this -> full_review
+    low: 0.50                   # confidence below this -> second_review
+  safety_critical_classes: [ice]   # predicted by any model -> second_review
+  extra_providers: []           # more signals by name (run.PROVIDERS), e.g. [margin]
+  learned_weights: artifacts/routing/learned_policy.json   # policy: learned (scripts/fit_learned_policy.py)
+  l2: 1.0                       # L2 penalty of the learned policy's logistic regression
+  probs_file: artifacts/results/baseline_probs.npz   # scripts/train_baseline.py --eval-test --save-probs
+  out_dir: artifacts/routing    # decisions.jsonl (append-only audit log) and summary.json
+  temperature_search: {t_min: 0.05, t_max: 20.0, steps: 2000}   # log-spaced NLL grid, fitted on val
+  ece_bins: 15                  # same as classifier.ece_bins
+  sweep: {high_start: 0.60, high_stop: 0.95, high_step: 0.05}  # summary: light_review share per `high`
+
 metrics:
   classification: [macro_f1, accuracy, per_class_precision, per_class_recall, ece]
   detection: [map50, map50_95, f1_at_conf]
