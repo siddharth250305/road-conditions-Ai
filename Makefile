@@ -2,7 +2,7 @@
 PY ?= python3
 PORT ?= 8000
 
-.PHONY: setup test lint frontend demo demo-mock docker route
+.PHONY: setup test lint frontend demo demo-mock docker route route-cnn review-report
 
 setup:  ## Python and frontend dependencies
 	$(PY) -m pip install -e ".[dev,export,serve]"
@@ -31,3 +31,9 @@ docker:  ## The same demo as the Hugging Face Space image, on http://localhost:7
 
 route:  ## Review routing on the saved baseline probabilities -> artifacts/routing (archives an existing log)
 	$(PY) scripts/route_images.py --archive-existing
+
+route-cnn:  ## Offline routing check of the served CNN; writes serving/routing.json for the live API
+	$(PY) scripts/route_images.py --config configs/routing_cnn.yaml --archive-existing --bundle-dir serving
+
+review-report:  ## Live review routing from the API's decision log, against the offline check
+	$(PY) scripts/review_report.py

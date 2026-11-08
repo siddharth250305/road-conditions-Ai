@@ -1,10 +1,14 @@
 """Route every test image of a saved probabilities file and summarise the run.
 
     python -m roadcond.routing.run [--probs FILE.npz] [--out-dir DIR] [--archive-existing]
+                                   [--bundle-dir serving]
 
 The temperature of the primary model is fitted on val only; every test image is routed and
 logged to <out_dir>/decisions.jsonl, and <out_dir>/summary.json holds the evaluation. This is
 the one place that picks concrete providers and policies; the router itself does not.
+
+With --bundle-dir, a check of the exported model's own probabilities also writes
+<bundle>/routing.json, which switches routing on in the live API (roadcond.routing.live).
 """
 
 import argparse
@@ -47,7 +51,12 @@ log = logging.getLogger(__name__)
 POLICIES: dict[str, Callable[[Mapping[str, Any]], ReviewPolicy]] = {
     "threshold": ThresholdPolicy.from_config,
 }
-MODEL_LABELS = {"random_forest": "random forest", "logreg": "logistic regression"}
+MODEL_LABELS = {
+    "random_forest": "random forest",
+    "logreg": "logistic regression",
+    "resnet50": "ResNet-50",
+}
+NO_SEED = -1  # the model's training seed was not recorded
 
 
 def build_providers(routing: Mapping[str, Any], temperature: float) -> list[ConfidenceProvider]:
@@ -87,7 +96,8 @@ def run_label(probs: ProbsFile, primary: str) -> str:
     """E.g. "random forest + logistic regression, RSCD test set, seed 0" (primary model first)."""
     ordered = [primary, *(m for m in probs.models if m != primary)]
     models = " + ".join(MODEL_LABELS.get(m, m) for m in ordered)
-    return f"{models}, RSCD test set, seed {probs.seed}"
+    seed = "seed not recorded" if probs.seed == NO_SEED else f"seed {probs.seed}"
+    return f"{models}, RSCD test set, {seed}"
 
 
 def archive_log(path: Path) -> Path:
@@ -228,6 +238,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="move an existing decisions.jsonl aside (timestamped) instead of refusing",
     )
+    parser.add_argument(
+        "--bundle-dir",
+        help="after the check, write <DIR>/routing.json so the live API routes with this config",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -244,10 +258,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             "  python scripts/train_baseline.py --root <RSCD> --eval-test --save-probs"
         )
     out_dir = pick(args.out_dir, routing["out_dir"])
-    summary = route_all(routing, load_probs(probs_path), out_dir, args.archive_existing, probs_path)
+    probs = load_probs(probs_path)
+    summary = route_all(routing, probs, out_dir, args.archive_existing, probs_path)
     modes = ", ".join(f"{m} {v['pct']:.1f}%" for m, v in summary["modes"].items())
     print(f"{summary['label']}: {summary['n_images']} images; {modes}")
     print(f"Saved {out_dir / 'decisions.jsonl'} and {out_dir / 'summary.json'}")
+    if args.bundle_dir:
+        from roadcond.routing.live import write_live_routing  # live imports this module
+
+        written = write_live_routing(
+            resolve_path(args.bundle_dir, cwd), routing, probs.classes, summary
+        )
+        print(f"Saved {written}: the API now routes live photos with this config")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,21 @@
+# Review routing for the exported CNN, the model the live API serves (roadcond.routing.live).
+#
+#   python scripts/save_bundle_probs.py --root <RSCD>          # its val/test probabilities
+#   make route-cnn                                              # offline check + serving/routing.json
+#
+# The rules and thresholds are the baseline's (configs/default.yaml), set before any CNN result
+# was seen. The API serves one model, so agreement is off (fewer than 2 agreement_models).
+routing:
+  policy: threshold
+  policy_version: "1.0.0"       # bump when the rules or thresholds change; logged with every decision
+  primary_model: resnet50       # = model_name in serving/meta.json
+  agreement_models: [resnet50]  # one model: the "models disagree" rule is off
+  thresholds:
+    high: 0.85                  # confidence below this -> full_review
+    low: 0.50                   # confidence below this -> second_review
+  safety_critical_classes: [ice]
+  probs_file: artifacts/results/cnn_probs.npz   # scripts/save_bundle_probs.py
+  out_dir: artifacts/routing_cnn
+  temperature_search: {t_min: 0.05, t_max: 20.0, steps: 2000}
+  ece_bins: 15
+  sweep: {high_start: 0.60, high_stop: 0.95, high_step: 0.05}
